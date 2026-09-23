@@ -1,0 +1,51 @@
+# Inference backends. A runtime is a BINARY PATH, not a name
+# (docs/DECISIONS.md D6) — several llama.cpp builds coexist here because
+# PrismML's fork is required for Bonsai's Q1_0_g128 kernels and upstream
+# llama.cpp cannot load that format at all.
+#
+# `managed = true` means something else owns the process lifecycle, so froe
+# checks the endpoint rather than looking for a binary to launch.
+
+[runtime.ollama]
+kind     = "ollama"
+base_url = "http://localhost:11434/v1"
+grammar  = "no"            # Ollama does not expose GBNF
+managed  = true
+notes    = "num_ctx defaults to 4096 and SILENTLY TRUNCATES. Always set it explicitly."
+
+[runtime.llamacpp]
+kind     = "openai-compat"
+binary   = "~/src/llama.cpp/build/bin/llama-server"
+base_url = "http://localhost:8080/v1"
+grammar  = "yes"
+notes    = "Upstream llama.cpp. VERIFIED 2026-09-11: loads plain Q1_0 Bonsai - the PrismML fork is NOT required for that build. Start with --jinja --reasoning off, which upstream exposes and LM Studio does not."
+
+[runtime.llamacpp-prismml]
+kind     = "openai-compat"
+binary   = "~/src/prismml-llama.cpp/build/bin/llama-server"
+base_url = "http://localhost:8081/v1"
+grammar  = "unverified"
+notes    = "PrismML fork (github.com/PrismML-Eng/llama.cpp). OPEN: does it ship llama-server or only llama-cli? Does GBNF survive? How far behind upstream?"
+
+[runtime.lmstudio]
+kind     = "openai-compat"
+base_url = "http://localhost:1234/v1"
+grammar  = "unverified"
+managed  = true
+notes    = "Headless via `lms daemon up`. Ships kernels ahead of upstream - the zero-effort path to Bonsai. Closed binary: local inference but not auditable."
+
+[runtime.mistral]
+kind     = "openai-compat"
+base_url = "https://api.mistral.ai/v1"
+grammar  = "no"
+managed  = true
+api_key_env = "MISTRAL_API_KEY"
+notes    = "EU-hosted and EU-governed."
+
+[runtime.anthropic]
+kind     = "anthropic"
+base_url = "https://api.anthropic.com/v1"
+grammar  = "no"
+managed  = true
+api_key_env = "ANTHROPIC_API_KEY"
+notes    = "Own wire format, own adapter."

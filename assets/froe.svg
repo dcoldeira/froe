@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 224 208" width="224" height="208" role="img" aria-label="A froe: a long steel blade with a wooden handle set at a right angle">
+  <title>froe</title>
+  <defs>
+    <clipPath id="blade-clip">
+      <rect x="28" y="158" width="168" height="26" rx="4"/>
+    </clipPath>
+  </defs>
+
+  <g transform="rotate(-9 112 104)">
+    <!-- handle: riven ash, flaring towards the top -->
+    <path d="M159 162 L181 162 L184 38 Q185 24 171 24 Q157 24 158 38 Z" fill="#C99155"/>
+    <path d="M164 156 L163 38" stroke="#A06E34" stroke-width="2" stroke-linecap="round" opacity="0.5"/>
+    <path d="M176 156 L177 38" stroke="#A06E34" stroke-width="2" stroke-linecap="round" opacity="0.35"/>
+
+    <!-- socket: the collar that takes the handle and carries the blow -->
+    <rect x="151" y="126" width="38" height="38" rx="9" fill="#4A545E"/>
+
+    <!-- blade: struck on the spine, levered along the grain -->
+    <rect x="28" y="158" width="168" height="26" rx="4" fill="#6E7A86"/>
+    <g clip-path="url(#blade-clip)">
+      <path d="M28 184 L196 184 L196 178 L28 173 Z" fill="#C6D0D8"/>
+    </g>
+  </g>
+</svg>

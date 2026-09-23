@@ -1,0 +1,1 @@
+Average panics on an empty slice. Fix it so it returns 0 instead. Run the tests to confirm.

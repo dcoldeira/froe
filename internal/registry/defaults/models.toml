@@ -1,0 +1,174 @@
+# Shipped model catalogue. Overlay your own at ~/.config/froe/models.toml —
+# an entry with a matching `id` replaces the one here outright.
+#
+# `params_b` is METADATA, NOT a planning input. Fit is decided from `size_gb`
+# and `peak_mb` (docs/DECISIONS.md D7): the same 27B is a 16.5 GB CPU-bound
+# crawl at Q4 and a 3.5 GB near-resident model at 1.125 bpw.
+#
+# `peak_mb` should be a MEASURED figure with the `peak_ctx` it was measured at.
+# Leave it unset and froe estimates from disk size, marking the row as such.
+# `froe bench` replaces estimates with real numbers.
+
+# ── PrismML Bonsai ────────────────────────────────────────────────────────────
+# 1.125 bpw binary quantisation of Qwen3.6-27B. Apache 2.0.
+# Needs the PrismML llama.cpp fork — upstream CANNOT load Q1_0_g128.
+# NOTE: two distinct GGUF builds of Bonsai exist and they are NOT the same file.
+#   - prism-ml/Bonsai-27B-gguf        -> Q1_0_g128, needs the PrismML fork
+#   - lmstudio-community/Bonsai-27B-GGUF -> plain Q1_0, converted from upstream
+#     llama.cpp at commit 0e4a0362239713ea95a6864a17a8de4b0ad90d62 with --no-mtp
+# If plain Q1_0 is upstream-supported, `bonsai-27b-lmstudio` may also run on the
+# upstream llamacpp runtime - which would remove the fork dependency entirely.
+# UNVERIFIED: test before relying on it.
+[[model]]
+id            = "bonsai-27b"
+runtime       = "llamacpp-prismml"
+params_b      = 27
+quant         = "Q1_0_g128"
+size_gb       = 3.53
+peak_mb       = 5325          # vendor figure @ 4K ctx
+peak_ctx      = 4096
+ctx_max       = 262144
+tool_strategy = "native"
+vision        = true
+thinking_budget_tokens = 2048  # reasons by default; cap it or it burns tokens
+roles         = ["main", "heavy"]
+notes         = "Vendor benchmarks are Apple Metal and H100 only - no consumer NVIDIA figures exist. Bench before trusting."
+
+[[model]]
+id            = "bonsai-27b-lmstudio"
+runtime_id    = "prism-ml/bonsai-27b"   # what LM Studio calls it
+runtime       = "lmstudio"
+params_b      = 27
+quant         = "Q1_0"
+size_gb       = 3.80
+peak_mb       = 4516          # MEASURED 2026-09-11: 4.41 GiB loaded @ 4K ctx
+peak_ctx      = 4096
+ctx_max       = 262144
+tool_strategy = "native"
+vision        = true          # needs mmproj-Bonsai-27B-BF16.gguf (+0.87 GB)
+thinking_budget_tokens = 64   # MEASURED: 16 is ~2x faster but drops the eval from 5/5 to 4/5 - it stops recovering from tool errors
+roles         = ["main", "heavy"]
+notes         = "Pull: lms get prism-ml/bonsai-27b -y --gguf. MEASURED on RTX A500 4GB: loads in 5s, 3838/4096 MiB VRAM, ~4.5 tok/s generation. Reasons by default and CANNOT be disabled via /no_think, enable_thinking or reasoning_effort - only thinking_budget_tokens works."
+
+# Same GGUF as bonsai-27b-lmstudio, served by UPSTREAM llama.cpp instead of the
+# closed LM Studio binary. Exists to answer two open questions at once:
+# does upstream load plain Q1_0, and does grammar-constrained tool calling beat
+# react? Grammar is a sampler feature, so it works on a CPU-only build.
+[[model]]
+id            = "bonsai-27b-llamacpp"
+runtime       = "llamacpp"
+params_b      = 27
+quant         = "Q1_0"
+size_gb       = 3.80
+peak_mb       = 5325
+peak_ctx      = 4096
+ctx_max       = 262144
+tool_strategy = "grammar"
+vision        = false
+thinking_budget_tokens = 64
+roles         = ["main"]
+notes         = "Upstream llama.cpp + GBNF. Start with: llama-server -m ~/.lmstudio/models/lmstudio-community/Bonsai-27B-GGUF/Bonsai-27B-Q1_0.gguf --port 8080 -c 4096"
+
+[[model]]
+id            = "bonsai-27b-ternary"
+runtime       = "llamacpp-prismml"
+params_b      = 27
+quant         = "ternary-1.58bit"
+size_gb       = 6.66
+ctx_max       = 262144
+tool_strategy = "native"
+vision        = true
+roles         = ["heavy"]
+notes         = "Quality-oriented operating point. Add +0.9 GiB for the vision tower if mmproj is loaded."
+
+# ── Qwen2.5-Coder via Ollama (already installed locally) ──────────────────────
+[[model]]
+id            = "qwen2.5-coder:1.5b"
+runtime       = "ollama"
+params_b      = 1.5
+quant         = "Q4_K_M"
+size_gb       = 0.99
+ctx_max       = 32768
+tool_strategy = "react"
+roles         = ["fast", "commit"]
+notes         = "Drives `froe commit`. Too weak for reliable tool calling - fast and commit roles only. The CPU-pinned twin below shares the fast role and the same size_gb, so a size tie between them falls to ID order and picks the CPU one. Measured 2026-09-15 on the same diff with both cold: 71.8s CPU against 7.5s here. The commit role names this model outright rather than relying on that."
+
+# VRAM CONTENTION: on a 4 GB card a GPU-resident model (Bonsai holds 3.8 GB)
+# leaves nothing for a second one, and Ollama does NOT fall back to CPU - it
+# hard-fails with a CUDA OOM. Pin the fast model to CPU so the two coexist.
+# Create with:  ollama create qwen2.5-coder-cpu:1.5b -f Modelfile
+#               (FROM qwen2.5-coder:1.5b / PARAMETER num_gpu 0)
+# MEASURED 2026-09-11: 43.5 tok/s on CPU alone, GPU untouched.
+[[model]]
+id            = "qwen2.5-coder-cpu:1.5b"
+runtime       = "ollama"
+params_b      = 1.5
+quant         = "Q4_K_M"
+size_gb       = 0.99
+ctx_max       = 32768
+tool_strategy = "react"
+cpu_only      = true
+roles         = ["fast"]
+notes         = "num_gpu=0. Coexists with a GPU-resident model. 43.5 tok/s measured."
+
+[[model]]
+id            = "qwen2.5-coder:7b"
+runtime       = "ollama"
+params_b      = 7
+quant         = "Q4_K_M"
+size_gb       = 4.7
+ctx_max       = 32768
+tool_strategy = "native"
+roles         = ["main"]
+notes         = "NOT PULLED YET. Candidate interactive model for the 4 GB machine."
+
+[[model]]
+id            = "qwen2.5-coder:32b"
+runtime       = "ollama"
+params_b      = 32
+quant         = "Q4_K_M"
+size_gb       = 19.0
+ctx_max       = 32768
+tool_strategy = "native"
+roles         = ["heavy"]
+notes         = "Installed. Expect a CPU-bound crawl on a 4 GB VRAM machine - this is the Q4 case D7 warns about."
+
+# ── Mistral, La Plateforme ────────────────────────────────────────────────────
+# Enumerated from GET /v1/models on 2026-09-17 rather than guessed: the account
+# lists 53 models and these are the three worth carrying. EU-hosted and EU-
+# governed, which is the point of having them at all — see runtimes.toml.
+#
+# NONE of them carry the `fast` or `commit` roles, deliberately. Those roles run
+# often and on every release, and routing them to a billed endpoint by default is
+# how a personal card gets a surprising month. `froe commit` stays on the local
+# 1.5B, where it is 7.5s and free.
+#
+# No size_gb or peak_mb: they run on someone else's hardware, so local memory
+# says nothing about them. `froe doctor` reports them as `hosted`.
+
+[[model]]
+id            = "mistral-medium-latest"
+runtime       = "mistral"
+ctx_max       = 262144
+tool_strategy = "native"
+vision        = true
+roles         = ["main"]
+notes         = "Default hosted main. 32x the local window - the point of comparison for whether the stepwise design is a Bonsai workaround or a real property."
+
+[[model]]
+id            = "codestral-latest"
+runtime       = "mistral"
+ctx_max       = 256000
+tool_strategy = "native"
+vision        = false
+roles         = ["main"]
+notes         = "Code-specialised. Narrower than mistral-medium and no vision; try it where the task is purely code."
+
+[[model]]
+id            = "mistral-large-latest"
+runtime       = "mistral"
+ctx_max       = 262144
+tool_strategy = "native"
+vision        = true
+roles         = ["heavy"]
+notes         = "Heavy role only. Most expensive of the three - do not make it a default."

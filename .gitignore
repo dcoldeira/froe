@@ -1,0 +1,24 @@
+# Go
+/froe
+/bin/
+/dist/
+*.test
+*.out
+
+# local config and state
+# Agent instructions: read from disk by froe and by other agents,
+# deliberately NOT tracked. It describes how to work on this machine,
+# not what the project is, and it must never be publishable.
+/FROE.md
+*.db
+*.sqlite
+/config/local.toml
+
+# models and benchmark artefacts
+*.gguf
+/bench/results/
+
+# editors / OS
+.DS_Store
+*.swp
+.idea/

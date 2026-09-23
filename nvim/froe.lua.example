@@ -1,0 +1,30 @@
+-- Drop this in ~/.config/nvim/lua/plugins/froe.lua (i.e. your dotfiles repo).
+-- Keeping it there rather than in the froe repo means froe stays
+-- publishable without shipping anyone's personal config.
+return {
+  "dcoldeira/froe",
+  cmd = { "Froe", "FroeVisual", "FroeOpen", "FroeLaunch" },
+  keys = {
+    { "<leader>dd", ":Froe ", desc = "froe: task" },
+    { "<leader>dd", ":FroeVisual ", mode = "v", desc = "froe: task on selection" },
+    { "<leader>dl", "<cmd>FroeLaunch<cr>", desc = "froe: launch model runtime" },
+    { "<leader>ds", "<cmd>FroeStop<cr>", desc = "froe: stop" },
+    { "<leader>do", "<cmd>FroeOpen<cr>", desc = "froe: output" },
+  },
+  config = function(plugin)
+    vim.opt.runtimepath:append(plugin.dir .. "/nvim")
+    require("froe").setup({
+      mode = "ask",
+      show_reasoning = false,
+      keys = false, -- lazy.nvim declares them above
+      -- tufa: bring Bonsai up headless via LM Studio's CLI, pinned to
+      -- parallel 1 explicitly - JIT auto-load defaults to 4, which quarters
+      -- the real usable context window (see STATUS.md).
+      launch = {
+        "lms", "load", "prism-ml/bonsai-27b",
+        "--gpu", "max", "--context-length", "8192",
+        "--parallel", "1", "--ttl", "1800", "-y",
+      },
+    })
+  end,
+}
