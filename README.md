@@ -163,6 +163,8 @@ ONLY=10-locate-real-shape bash eval/run.sh
 
 ## Status, honestly
 
+Public since 2026-09-23.
+
 In daily use for commits: `froe commit` drives the release process for
 [QRL](https://github.com/entangledcode/qrl) and [Bell](https://bell.entangledcode.dev),
 the two projects it was built to develop. `froe locate` is the first of the stepwise
