@@ -117,7 +117,7 @@ rather than letting you discover it during a task.
 >
 > **It requires the PrismML llama.cpp fork** (`github.com/PrismML-Eng/llama.cpp`,
 > `Q1_0_g128` hybrid-attention kernels). Upstream llama.cpp cannot load it.
-> See §5 and `docs/DECISIONS.md` D6.
+> See §5.
 
 ## 4. Router
 

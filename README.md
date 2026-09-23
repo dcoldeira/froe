@@ -13,8 +13,7 @@
   <a href="#install">Install</a> ·
   <a href="#the-commands">Commands</a> ·
   <a href="#why-it-is-not-an-autonomous-agent">Why this shape</a> ·
-  <a href="docs/ARCHITECTURE.md">Architecture</a> ·
-  <a href="docs/DECISIONS.md">Decisions</a>
+  <a href="docs/ARCHITECTURE.md">Architecture</a>
 </p>
 
 ---
@@ -75,7 +74,9 @@ engineering judgement.
 phantom path, two turns *after* it had already edited the real file.
 
 So the state lives in you and in the conversation, rather than in a context
-window that cannot hold it. [D26](docs/DECISIONS.md) has the full working.
+window that cannot hold it. The full decision log (D26 and the rest) is being
+rewritten against fresh measurements and will land in `docs/DECISIONS.md`
+shortly.
 
 ### The second half of the answer: check the model after it stops
 
@@ -143,22 +144,23 @@ permission gate and one session store.
 
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — how the pieces fit
 - [`docs/MODELS.md`](docs/MODELS.md) — the registry, hardware profiles, runtimes
-- [`docs/DECISIONS.md`](docs/DECISIONS.md) — every choice, with the reasoning
-- [`docs/ROADMAP.md`](docs/ROADMAP.md) — what is next
 - [`docs/SETUP.md`](docs/SETUP.md) — bare machine to working install
-- [`TESTING.md`](TESTING.md) — how to hand-test it
+- `docs/DECISIONS.md`, `docs/ROADMAP.md`, `TESTING.md` — coming shortly, being
+  rewritten against fresh measurements
 
 ## Evaluation
 
-`eval/` holds 10 tasks, each scored as a **pass rate over repeats** rather than a
-single run — variance between identical runs of an agent is large enough to
-swamp the effect of a real fix, so one run cannot tell you whether a change
-helped.  A task can name the command it exercises, so a stepwise command is
-measured as itself instead of being approximated with `do`.
+`eval/` holds a handful of tasks, each scored as a **pass rate over repeats**
+rather than a single run — variance between identical runs of an agent is
+large enough to swamp the effect of a real fix, so one run cannot tell you
+whether a change helped. A task can name the command it exercises, so a
+stepwise command is measured as itself instead of being approximated with
+`do`. More tasks (including the ones exercising `froe locate`) are being
+rewritten against fresh measurements and will land shortly.
 
 ```bash
 bash eval/run.sh            # all tasks
-ONLY=10-locate-real-shape bash eval/run.sh
+ONLY=01-fix-panic bash eval/run.sh
 ```
 
 ## Status, honestly
