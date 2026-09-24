@@ -50,14 +50,18 @@ Answer in exactly this shape and nothing else:
 
 WHERE
   <path>:<line>  <symbol or short description>
-  ... one line per place that is involved
+  ... one line per place that must CHANGE, including every place that has to
+  change together with another: a header and its width, a function and its
+  callers, a field and the code that fills it. The half that gets forgotten
+  belongs here, not only in WATCH OUT. A lookalike never goes here.
 
 WHAT IT IS
   One or two sentences on what this code does and how the places above relate.
 
 WATCH OUT
-  Anything that looks relevant but is NOT, or a coupling that would break if
-  only some of the places were changed. Write "nothing" if there is none.
+  Anything that looks relevant but is NOT - lookalikes go here and only here -
+  and why the places in WHERE must change together. Write "nothing" if there
+  is none.
 
 CITE ONLY WHAT YOU HAVE SEEN. Every path and line number in "WHERE" must have
 appeared in a tool result in this session. Never repeat a path from the report
@@ -144,6 +148,7 @@ func runLocate(ctx context.Context, args []string) error {
 		return err
 	}
 
+	fmt.Print(renderRelines(res.Relined))
 	fmt.Print(renderMissed(res.Missed))
 	fmt.Print(renderSurroundings(res.Surrounding))
 

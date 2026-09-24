@@ -21,6 +21,11 @@
 answer=$(mktemp)
 awk '/^── turn /{buf=""; next} /^ +[0-9]+ turns · /{printf "%s", buf; exit} {buf=buf $0 "\n"}' \
   "${1:-/dev/null}" > "$answer"
+# ...plus froe's own LINE NUMBERS CORRECTED section, which is not context but a
+# checked claim: the code the model quoted beside a citation, found on exactly
+# one other line of that file. Measured 2026-09-24, bonsai-27b named the widths
+# coupling in 2 of 3 runs of 09 and cited it two lines out each time.
+awk '/^LINE NUMBERS CORRECTED/{f=1; next} f && /^[A-Z]/{f=0} f' "${1:-/dev/null}" >> "$answer"
 out="$answer"
 F=src/qrl/reporting/witness_report.py
 fail() { echo "MISS: $1" >&2; exit 1; }

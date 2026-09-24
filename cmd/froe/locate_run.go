@@ -53,6 +53,7 @@ type locateResult struct {
 	Missed      []missed
 	Surrounding []missed
 	Resolutions []resolution
+	Relined     []relined
 	Metrics     *agent.Metrics
 
 	// RunErr is how the agent loop ended, which is not the same as a failure to
@@ -165,8 +166,11 @@ func locate(ctx context.Context, o locateOpts) (*locateResult, error) {
 		searches = append(searches, s)
 	}
 
-	found, missing := splitByExistence(o.Root, parseSites(raw.String()))
-	res := &locateResult{Found: found, Missing: missing, Metrics: metrics, RunErr: runErr}
+	// Line numbers are corrected before anything else reads them: the sweep
+	// and the surroundings would otherwise work from the wrong line.
+	rel := relines(o.Root, raw.String())
+	found, missing := splitByExistence(o.Root, applyRelines(parseSites(raw.String()), rel))
+	res := &locateResult{Found: found, Missing: missing, Relined: rel, Metrics: metrics, RunErr: runErr}
 
 	if len(found) > 0 {
 		res.Missed = sweepSites(ctx, o.Root, found, searches)
