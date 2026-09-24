@@ -47,6 +47,11 @@ classify() {
   local out="$1"
   if grep -q '^froe-eval: timed out' "$out";              then echo timeout
   elif grep -q 'exceeds the available context size' "$out"; then echo context-overflow
+  # The runtime refused a turn and froe stopped. Measured 2026-09-24:
+  # ministral-3:8b via Ollama hit "HTTP 500: unexpected end of JSON input" on 3
+  # of 10 tasks, right after its first tool result - Ollama failing to parse
+  # the model's own tool call. The model's failure, but not a wrong answer.
+  elif grep -q '^froe: .*HTTP 5[0-9][0-9]' "$out";          then echo runtime-error
   elif grep -q 'stuck:.*kept failing' "$out";              then echo stuck-failing
   elif grep -q 'stuck:.*found nothing' "$out";             then echo stuck-fruitless
   elif grep -q 'stuck:' "$out";                            then echo stuck-no-progress
