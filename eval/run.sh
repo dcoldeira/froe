@@ -94,7 +94,7 @@ for task_dir in "$TASKS_DIR"/*/; do
 
     ( cd "$sandbox" && git init -q 2>/dev/null \
       && git add -A 2>/dev/null \
-      && git -c user.email=e@e -c user.name=e commit -qm "initial commit" 2>/dev/null )
+      && git -c user.email=e@e -c user.name=e commit -qm "initial commit" >/dev/null 2>&1 )
 
     # Optional per-task extra setup: history, or a generated file tree too big
     # to keep in git.

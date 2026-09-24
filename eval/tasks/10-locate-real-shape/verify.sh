@@ -11,7 +11,15 @@
 # inside the list literal lands the reader in the right place; what is NOT
 # tolerated is the failure this task exists to catch - citing a decoy file, or
 # the path the report invented.
-out="${1:-/dev/null}"
+# Grade the MODEL'S answer only: the last turn's text, up to froe's stats
+# line. froe appends its own context after that (AROUND THOSE LINES, ALSO
+# MATCHING) with real file:line citations in it, and grading the whole output
+# let those pass for the model's. Measured 2026-09-24: qwen3-nothink:8b cited
+# only the header in 09 and "passed" on a widths line froe printed itself.
+answer=$(mktemp)
+awk '/^── turn /{buf=""; next} /^ +[0-9]+ turns · /{printf "%s", buf; exit} {buf=buf $0 "\n"}' \
+  "${1:-/dev/null}" > "$answer"
+out="$answer"
 F=src/qrl/reporting/witness_pdf_report.py
 fail() { echo "MISS: $1" >&2; exit 1; }
 
@@ -20,7 +28,8 @@ line_of() { grep -nF -- "$1" "$F" | head -1 | cut -d: -f1; }
 hdr=$(line_of "'Causal\nOrder'")
 widths=$(line_of 'col_widths=[24, 40')
 row=$(line_of "data.get('causal_order'")
-[ -n "$hdr" ] && [ -n "$widths" ] && [ -n "$row" ] || fail "fixture changed shape - cannot compute ground truth"
+look=$(line_of "'Causal\nOrdering'")
+[ -n "$hdr" ] && [ -n "$widths" ] && [ -n "$row" ] && [ -n "$look" ] || fail "fixture changed shape - cannot compute ground truth"
 
 # The bands must not overlap, or one citation satisfies two criteria. The
 # header sits on the last line of the headers list and col_widths is two lines
@@ -52,7 +61,12 @@ grep -qE "src/qrl/witness/witness_pdf_report\.py:[0-9]+" "$out" && fail "cited t
 grep -qE "(backends/witness/witness_[a-z]+\.py|witness_endpoints\.py):[0-9]+" "$out" \
   && fail "cited a decoy file as a place"
 
-# 6. Read-only is structural, so nothing may have changed on disk.
+# 6. Did not cite the lookalike: the DAG Details table's "Causal Ordering"
+#    header, a different table in the same file. Measured 2026-09-24:
+#    qwen3-nothink:8b listed it in WHERE as a third site to remove.
+cites $(( look - 1 )) $(( look + 1 )) && fail "cited the DAG Details lookalike near :$look"
+
+# 7. Read-only is structural, so nothing may have changed on disk.
 git diff --quiet || fail "locate modified the working tree"
 
 exit 0

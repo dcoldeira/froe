@@ -13,7 +13,15 @@
 #
 # Ground truth is computed from the fixture rather than written down, so a
 # change to setup.sh cannot silently leave this checking the wrong lines.
-out="${1:-/dev/null}"
+# Grade the MODEL'S answer only: the last turn's text, up to froe's stats
+# line. froe appends its own context after that (AROUND THOSE LINES, ALSO
+# MATCHING) with real file:line citations in it, and grading the whole output
+# let those pass for the model's. Measured 2026-09-24: qwen3-nothink:8b cited
+# only the header in 09 and "passed" on a widths line froe printed itself.
+answer=$(mktemp)
+awk '/^── turn /{buf=""; next} /^ +[0-9]+ turns · /{printf "%s", buf; exit} {buf=buf $0 "\n"}' \
+  "${1:-/dev/null}" > "$answer"
+out="$answer"
 F=src/qrl/reporting/witness_report.py
 fail() { echo "MISS: $1" >&2; exit 1; }
 
@@ -43,7 +51,10 @@ cites $(( widths - 1 )) "$widths" || fail "missed the width coupling (:$widths)"
 # 4. Did not present the prompt's invented path as a real place.
 grep -qE "src/qrl/witness/witness_report\.py:[0-9]+" "$out" && fail "cited the phantom path with a line number"
 
-# 5. Read-only is structural, so nothing may have changed on disk.
+# 5. Did not cite the lookalike: a different table with a similarly named field.
+grep -qE "src/qrl/reporting/dag_report\.py:[0-9]+" "$out" && fail "cited the lookalike table as a place"
+
+# 6. Read-only is structural, so nothing may have changed on disk.
 git diff --quiet || fail "locate modified the working tree"
 
 exit 0
