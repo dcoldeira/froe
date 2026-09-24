@@ -133,6 +133,105 @@ tool_strategy = "native"
 roles         = ["heavy"]
 notes         = "Installed. Expect a CPU-bound crawl on a 4 GB VRAM machine - this is the Q4 case D7 warns about."
 
+# ── Local candidates for the QRL eval track (added 2026-09-24) ────────────────
+# Qwen3 vs Mistral's open-weight coders, benchmarked with eval/run.sh on an
+# RTX 4060 Laptop (8 GB VRAM, 15 GB RAM). Everything past ~7 GB spills to CPU
+# on that card; how badly is what the eval measures, not what these notes guess.
+#
+# Qwen3 reasons by default. MEASURED 2026-09-24 through Ollama's /v1 endpoint,
+# one short prompt to qwen3:8b warm: default 591 completion tokens in 16.2s;
+# `reasoning_effort = "none"` 9 tokens in 0.3s; `think = false` is IGNORED on
+# /v1 (537 tokens, 14.0s). Each Qwen3 therefore has a -nothink twin, so the
+# eval decides whether the reasoning earns its cost rather than a guess.
+
+[[model]]
+id            = "qwen3:8b"
+runtime       = "ollama"
+params_b      = 8.2
+quant         = "Q4_K_M"
+size_gb       = 5.2
+ctx_max       = 40960
+tool_strategy = "native"
+roles         = ["main"]
+notes         = "Reasons by default - see the -nothink twin."
+
+[[model]]
+id            = "qwen3-nothink:8b"
+runtime_id    = "qwen3:8b"
+runtime       = "ollama"
+params_b      = 8.2
+quant         = "Q4_K_M"
+size_gb       = 5.2
+ctx_max       = 40960
+tool_strategy = "native"
+roles         = ["main"]
+extra         = { reasoning_effort = "none" }
+notes         = "Same weights as qwen3:8b with reasoning switched off."
+
+[[model]]
+id            = "qwen3:14b"
+runtime       = "ollama"
+params_b      = 14.8
+quant         = "Q4_K_M"
+size_gb       = 9.3
+ctx_max       = 40960
+tool_strategy = "native"
+roles         = ["main"]
+notes         = "Reasons by default - see the -nothink twin. Exceeds 8 GB VRAM, partly on CPU."
+
+[[model]]
+id            = "qwen3-nothink:14b"
+runtime_id    = "qwen3:14b"
+runtime       = "ollama"
+params_b      = 14.8
+quant         = "Q4_K_M"
+size_gb       = 9.3
+ctx_max       = 40960
+tool_strategy = "native"
+roles         = ["main"]
+extra         = { reasoning_effort = "none" }
+notes         = "Same weights as qwen3:14b with reasoning switched off."
+
+# Ministral 3 (Dec 2025), Apache 2.0: general models with tool calling and
+# vision. The 8B is the like-for-like comparison with qwen3:8b.
+[[model]]
+id            = "ministral-3:8b"
+runtime       = "ollama"
+params_b      = 8
+quant         = "Q4_K_M"
+size_gb       = 6.0
+ctx_max       = 262144
+tool_strategy = "native"
+vision        = true
+roles         = ["main"]
+
+[[model]]
+id            = "ministral-3:14b"
+runtime       = "ollama"
+params_b      = 14
+quant         = "Q4_K_M"
+size_gb       = 9.1
+ctx_max       = 262144
+tool_strategy = "native"
+vision        = true
+roles         = ["main"]
+notes         = "Exceeds 8 GB VRAM, partly on CPU."
+
+# Devstral Small 2 (Dec 2025), Apache 2.0: trained for agentic coding, which
+# is froe's job exactly. 15 GB at Q4 - on an 8 GB card most layers run on CPU.
+# Heavy role only, so it is never picked as a default.
+[[model]]
+id            = "devstral-small-2:24b"
+runtime       = "ollama"
+params_b      = 24
+quant         = "Q4_K_M"
+size_gb       = 15.0
+ctx_max       = 262144
+tool_strategy = "native"
+vision        = true
+roles         = ["heavy"]
+notes         = "Expect a CPU-bound crawl on 8 GB VRAM. Run the eval on a subset (ONLY=, REPEATS=) first."
+
 # ── Mistral, La Plateforme ────────────────────────────────────────────────────
 # Enumerated from GET /v1/models on 2026-09-17 rather than guessed: the account
 # lists 53 models and these are the three worth carrying. EU-hosted and EU-
