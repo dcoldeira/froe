@@ -28,8 +28,9 @@ ONLY="${ONLY:-}"
 # looks like when it is cut off: a model that needs longer than this for tasks
 # this size is not usable interactively, so waiting it out measures nothing
 # worth knowing. It was a fixed 900s, which let one slow model hold a suite for
-# hours.
-TIMEOUT="${TIMEOUT:-300}"
+# hours. 120s is the bar a model has to clear to be worth using at all - a
+# capable one does these tasks in 1-20s (qwen3-nothink:8b, 2026-09-24).
+TIMEOUT="${TIMEOUT:-120}"
 WORK="$(mktemp -d)"
 RESULTS="$WORK/results.tsv"
 TASKS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/tasks" && pwd)"
