@@ -43,6 +43,14 @@ var deniedPatterns = []struct {
 		"fork bomb"},
 	{regexp.MustCompile(`\bcurl\b[^|]*\|\s*(ba)?sh|\bwget\b[^|]*\|\s*(ba)?sh`),
 		"piping a download straight into a shell"},
+	// Privilege escalation reaches outside the project root, which everything
+	// else froe does is confined to. Measured 2026-09-24 under -yolo:
+	// qwen3-nothink:8b, asked to check an import, ran `sudo apt-get install`
+	// on three runs of three. It failed only because no terminal could supply
+	// a password - with cached sudo credentials it would have run. Matched in
+	// command position only, so `grep sudo notes.txt` is still allowed.
+	{regexp.MustCompile(`(^|[;&|(` + "`" + `]|\$\(|\b(xargs|env|exec|nohup|time)\s)\s*(sudo|doas)\b`),
+		"privilege escalation (sudo) - froe works inside the project; ask the user to run it"},
 }
 
 // Bash runs a shell command in the project root.
