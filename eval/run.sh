@@ -24,6 +24,12 @@ REPEATS="${REPEATS:-3}"
 # ONLY=06-wrong-path runs a single task. A full suite at this hardware's speeds
 # is roughly an hour, which is too slow a loop to iterate against.
 ONLY="${ONLY:-}"
+# A run that has not finished in TIMEOUT seconds is a FAIL, whatever the tree
+# looks like when it is cut off: a model that needs longer than this for tasks
+# this size is not usable interactively, so waiting it out measures nothing
+# worth knowing. It was a fixed 900s, which let one slow model hold a suite for
+# hours.
+TIMEOUT="${TIMEOUT:-300}"
 WORK="$(mktemp -d)"
 RESULTS="$WORK/results.tsv"
 TASKS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/tasks" && pwd)"
@@ -38,7 +44,8 @@ printf 'task\tpassed\trate\tsecs(med)\tturns(med)\tfailure modes\n' > "$RESULTS"
 # showing as the same pass count.
 classify() {
   local out="$1"
-  if grep -q 'exceeds the available context size' "$out"; then echo context-overflow
+  if grep -q '^froe-eval: timed out' "$out";              then echo timeout
+  elif grep -q 'exceeds the available context size' "$out"; then echo context-overflow
   elif grep -q 'stuck:.*kept failing' "$out";              then echo stuck-failing
   elif grep -q 'stuck:.*found nothing' "$out";             then echo stuck-fruitless
   elif grep -q 'stuck:' "$out";                            then echo stuck-no-progress
@@ -61,6 +68,7 @@ median() { sort -n | awk '{a[NR]=$1} END{ if(NR==0){print 0} else {print a[int((
 
 total_passed=0
 total_runs=0
+suite_start=$(date +%s)
 
 for task_dir in "$TASKS_DIR"/*/; do
   name="$(basename "$task_dir")"
@@ -101,13 +109,15 @@ for task_dir in "$TASKS_DIR"/*/; do
     fi
 
     start=$(date +%s)
-    out="$( cd "$sandbox" && timeout 900 "$FROE" "${argv[@]}" "$prompt" 2>&1 )"
+    out="$( cd "$sandbox" && timeout "$TIMEOUT" "$FROE" "${argv[@]}" "$prompt" 2>&1 )"
+    rc=$?
     secs=$(( $(date +%s) - start ))
+    [ "$rc" = 124 ] && out="$out"$'\n'"froe-eval: timed out after ${TIMEOUT}s"
 
     turns=$(printf '%s' "$out" | grep -oE '[0-9]+ turns' | tail -1 | grep -oE '[0-9]+' || echo 0)
     printf '%s' "$out" > "$sandbox/.froe-output.txt"
 
-    if ( cd "$sandbox" && bash "$task_dir/verify.sh" "$sandbox/.froe-output.txt" >/dev/null 2>&1 ); then
+    if [ "$rc" != 124 ] && ( cd "$sandbox" && bash "$task_dir/verify.sh" "$sandbox/.froe-output.txt" >/dev/null 2>&1 ); then
       result=PASS
       passed=$(( passed + 1 ))
     else
@@ -140,7 +150,9 @@ echo "════════════════════════�
 column -t -s$'\t' "$RESULTS"
 echo "════════════════════════════════════════════════════"
 echo "  ${total_passed}/${total_runs} runs passed   (${REPEATS} repeats per task)"
-echo "  model: ${MODEL:-auto}   mode: $MODE   max-turns: $TURNS"
+echo "  model: ${MODEL:-auto}   mode: $MODE   max-turns: $TURNS   timeout: ${TIMEOUT}s"
+wall=$(( $(date +%s) - suite_start ))
+printf '  wall time: %dm%02ds   (started %s)\n' $(( wall / 60 )) $(( wall % 60 )) "$(date -d @"$suite_start" '+%F %T')"
 echo "  artefacts: $WORK"
 echo
 echo "  A pass RATE is the number to compare. A single run proves nothing:"
