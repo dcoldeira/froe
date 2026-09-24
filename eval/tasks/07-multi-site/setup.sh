@@ -60,6 +60,8 @@ set -e
   echo '# Import-time guard: every site must agree, so a partial edit fails the'
   echo '# moment the module loads rather than when a table is drawn.'
   echo 'assert len(REGISTERED) == len(HEADERS) == len(WIDTHS) == len(row())'
+  echo '# Blanking a label keeps every length equal, so it needs its own guard.'
+  echo 'assert all(REGISTERED) and all(HEADERS), "every column needs a name"'
 } > switch_table.py
 git add -A
 git -c user.email=e@e -c user.name=e commit -qm "add switch table"

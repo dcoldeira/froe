@@ -35,6 +35,8 @@ WITNESS_SUMMARY_WIDTHS = (24, 12, 20, 18, 18, 12)
 # Import-time guard: a header with no width is a broken table, so a partial
 # edit fails the moment the module loads rather than when a PDF is drawn.
 assert len(WITNESS_SUMMARY_HEADERS) == len(WITNESS_SUMMARY_WIDTHS)
+# Blanking a label keeps both lengths equal, so it needs its own guard.
+assert all(WITNESS_SUMMARY_HEADERS), "every column needs a name"
 PY
 
 # The lookalike that must NOT be touched: a different field, a different table.

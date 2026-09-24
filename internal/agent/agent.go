@@ -299,6 +299,14 @@ func (a *Agent) run(ctx context.Context, task string, images []provider.ImageCon
 	// where the model is looking for new information, not off to the side.
 	resultCache := map[string]string{}
 
+	// editedSinceCheck is true while a file has been written and no command has
+	// run since. A model that finishes in that state has declared the task done
+	// without looking - measured 2026-09-24 on 07-multi-site: five models, five
+	// failures, and not one ran the module the task said must still import. One
+	// had replaced a header with "" and called it finished; a single run of the
+	// module would have shown it. checkNudged keeps the push to once per run.
+	editedSinceCheck, checkNudged := false, false
+
 	a.transcript = nil
 
 	msgs := make([]provider.Message, 0, 4+len(a.History))
@@ -440,6 +448,23 @@ func (a *Agent) run(ctx context.Context, task string, images []provider.ImageCon
 			answer, calls = clean, parsed
 		}
 
+		if len(calls) == 0 && editedSinceCheck && !checkNudged && turn < maxTurns &&
+			asksForCheck(task) && a.canRun("bash") {
+			// Finished with edits nobody has run. Send it back once to run the
+			// check the task itself asked for. Not on the last turn: that would
+			// turn a finished run into an out-of-turns failure.
+			checkNudged = true
+			nudge := verifyNudge(m.FilesChanged, checkSentence(task))
+			done := provider.Message{Role: provider.RoleAssistant, Content: answer}
+			push := provider.Message{Role: provider.RoleUser, Content: nudge}
+			msgs = append(msgs, done, push)
+			a.transcript = append(a.transcript, done, push)
+			if !emit(Event{Kind: KindToolResult, Tool: "(verify)", Result: nudge}) {
+				return
+			}
+			continue
+		}
+
 		if len(calls) == 0 {
 			a.transcript = append(a.transcript,
 				provider.Message{Role: provider.RoleAssistant, Content: answer})
@@ -506,6 +531,15 @@ func (a *Agent) run(ctx context.Context, task string, images []provider.ImageCon
 			if !denied {
 				if t, ok := a.Tools.Get(call.Name); ok && t.Mutating() {
 					m.recordChange(callPath(call.Arguments))
+				}
+				// Any command that ran counts as a check: a failing test is a
+				// non-zero exit, which bash reports as output, not as denial.
+				if call.Name == "bash" {
+					editedSinceCheck = false
+				} else if callPath(call.Arguments) != "" {
+					if t, ok := a.Tools.Get(call.Name); ok && t.Mutating() {
+						editedSinceCheck = true
+					}
 				}
 			}
 
@@ -602,6 +636,54 @@ func (a *Agent) run(ctx context.Context, task string, images []provider.ImageCon
 
 	m.Elapsed = time.Since(start)
 	emit(Event{Kind: KindError, Err: &MaxTurnsError{Turns: maxTurns}, Metrics: &m})
+}
+
+// checkWords are what a task says when it expects its result to be checked:
+// "run the tests", "must still build", "import cleanly". The verify push is
+// gated on them because it costs a whole turn - on a slow local model, tens of
+// seconds - and a task that asked for no check should not pay for one.
+var checkWords = []string{"test", "build", "compile", "import", "lint", "verify", "confirm"}
+
+// asksForCheck reports whether a task asks for its result to be checked.
+func asksForCheck(task string) bool { return checkSentence(task) != "" }
+
+// checkSentence returns the task's own sentence asking for a check, or "".
+//
+// The push quotes it back rather than suggesting checks in general. Measured
+// 2026-09-24 on 07-multi-site: told to run "the tests, the build, or importing
+// the module", qwen3-nothink:8b ran unittest discovery, then a package build,
+// then pip, then sudo apt-get - three runs of three - and never once imported
+// the module the task named.
+func checkSentence(task string) string {
+	for _, line := range strings.Split(task, "\n") {
+		for _, sent := range strings.SplitAfter(line, ". ") {
+			l := strings.ToLower(sent)
+			for _, w := range checkWords {
+				if strings.Contains(l, w) {
+					return strings.TrimSpace(sent)
+				}
+			}
+		}
+	}
+	return ""
+}
+
+// canRun reports whether a tool exists in this run and has not been refused
+// for the session - pushing a model to run a check it cannot run wastes a turn.
+func (a *Agent) canRun(name string) bool {
+	_, ok := a.Tools.Get(name)
+	return ok && !a.blocked[name]
+}
+
+// verifyNudge is sent when a run finishes with edits that were never run.
+func verifyNudge(changed []string, check string) string {
+	what := "files"
+	if len(changed) > 0 {
+		what = strings.Join(changed, ", ")
+	}
+	return fmt.Sprintf("You changed %s but ran nothing afterwards. The task says: %q "+
+		"Run the one command that checks exactly that, now, with bash, and fix anything "+
+		"it reports. Then give your final answer.", what, check)
 }
 
 // MaxTurnsError ends a run that spent its whole turn budget.

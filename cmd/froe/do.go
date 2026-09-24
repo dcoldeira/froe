@@ -272,6 +272,14 @@ func renderAgentTap(ctx context.Context, events <-chan agent.Event, st style, sh
 					st.yellow("▸"), st.bold(ev.Tool), st.dim(truncate(ev.Args, 100)))
 
 			case agent.KindToolResult:
+				// The verify push arrives right after the model's answer text,
+				// which may not end in a newline - close it so the push is not
+				// read as part of the answer.
+				if ev.Tool == "(verify)" {
+					endText()
+					fmt.Fprintf(os.Stderr, "  %s %s\n", st.yellow("↺ not checked:"), st.dim(truncate(ev.Result, 300)))
+					continue
+				}
 				if tap.OnTool != nil {
 					name := ev.Tool
 					if name == "" {
