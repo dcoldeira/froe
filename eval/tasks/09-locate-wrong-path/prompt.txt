@@ -1,0 +1,12 @@
+## Summary
+The "Causal Order" column in the Witness Summary table is redundant - the
+process title already says whether it is a quantum switch or a definite causal
+order. The column should be removed from the table.
+
+## Code Location
+`src/qrl/witness/witness_report.py` - Witness Summary table definition
+(column: `Causal Order`).
+
+## Expected Behaviour
+The "Causal Order" column should be removed from the Witness Summary table
+entirely.

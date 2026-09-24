@@ -1,0 +1,17 @@
+## Reported via the issue tracker
+
+**Type**: Feature Request
+
+## Summary
+The "Causal Order" column in the Witness Summary table on page 1 of the
+causal-structure PDF report is redundant - the process title already says
+whether it is a quantum switch or a definite order. The column should be
+removed from the table.
+
+## Code Location
+`src/qrl/witness/witness_pdf_report.py` - Witness Summary table definition
+(column: `Causal Order`).
+
+## Expected Behaviour
+The "Causal Order" column should be removed from the Witness Summary table
+entirely.

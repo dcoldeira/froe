@@ -1,0 +1,3 @@
+In sampling_pipeline.py, the default shot count is wrong. Change DEFAULT_SHOTS from 1000 to 4096.
+
+Change nothing else. The module must still import cleanly.

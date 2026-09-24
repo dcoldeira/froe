@@ -1,0 +1,5 @@
+The "Causal Order" column in the Witness Summary table is redundant - the process title already says whether it is a switch or a definite order - so remove it from the table entirely.
+
+Code Location: src/qrl/witness/witness_report.py
+
+The module must still import cleanly when you are done.

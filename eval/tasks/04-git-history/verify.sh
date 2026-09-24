@@ -1,2 +1,2 @@
 #!/usr/bin/env bash
-grep -qi "borehole depth rounding" "$1" || exit 1
+grep -qi "witness value rounding" "$1" || exit 1

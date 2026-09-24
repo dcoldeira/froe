@@ -1,0 +1,3 @@
+Remove the "Causal Order" column from switch_table.py completely.
+
+It appears in more than one place and they must all be changed together, including the row that is built for each process. The module must still import cleanly when you are done.
