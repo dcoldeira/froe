@@ -62,6 +62,62 @@ type locateResult struct {
 	RunErr error
 }
 
+// recheckTurns bounds the second pass: room to read one of the lines it was
+// shown, then answer.
+const recheckTurns = 3
+
+// recheckPrompt hands the sweep's unjudged lines back to the model.
+func recheckPrompt(ms []missed) string {
+	var b strings.Builder
+	b.WriteString("froe searched inside the files you cited, using the searches that worked, " +
+		"and found these lines that are not in your WHERE:\n")
+	for _, m := range ms {
+		fmt.Fprintf(&b, "  %s:%d  %s\n", m.Path, m.Line, truncate(m.Text, 90))
+	}
+	b.WriteString("\nFor each one: if it must change along with the places you gave - the same " +
+		"column's header, width, row value, a caller - add it to WHERE. If it is a lookalike " +
+		"or unrelated, name it in WATCH OUT instead. Then give the complete answer again, " +
+		"in the same three sections.")
+	return b.String()
+}
+
+// checkAnswer runs every deterministic check on one answer: corrects its line
+// numbers, splits its citations by existence, sweeps the cited files, and
+// finds the surroundings of citations the run never opened.
+func checkAnswer(ctx context.Context, root, answer string, searches []tools.Search, opened map[string][]openRange) *locateResult {
+	// Line numbers are corrected before anything else reads them: the sweep
+	// and the surroundings would otherwise work from the wrong line.
+	rel := relines(root, answer)
+	found, missing := splitByExistence(root, applyRelines(parseSites(answer), rel))
+	res := &locateResult{Found: found, Missing: missing, Relined: rel}
+	if len(found) > 0 {
+		// A line the answer names anywhere - including as a lookalike in
+		// WATCH OUT - has been judged, so the sweep does not list it again.
+		res.Missed = withoutMentioned(sweepSites(ctx, root, found, searches), answer)
+		// A citation the run never opened has nothing corroborating it: the
+		// sweep only replays searches, and no search matches a line that does
+		// not contain the searched term. Position is the evidence left, and it
+		// is free.
+		res.Surrounding = surroundings(root, found, opened)
+	}
+	return res
+}
+
+// withoutMentioned drops swept lines that the answer cites anywhere.
+func withoutMentioned(ms []missed, answer string) []missed {
+	named := map[string]bool{}
+	for _, m := range siteLine.FindAllStringSubmatch(answer, -1) {
+		named[strings.TrimPrefix(strings.Trim(m[1], "`\"',"), "./")+":"+m[2]] = true
+	}
+	var out []missed
+	for _, m := range ms {
+		if !named[fmt.Sprintf("%s:%d", m.Path, m.Line)] {
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
 // locate runs the whole command and checks its own answer. The returned error
 // means the run could not happen; a run that happened badly is in RunErr.
 func locate(ctx context.Context, o locateOpts) (*locateResult, error) {
@@ -135,21 +191,23 @@ func locate(ctx context.Context, o locateOpts) (*locateResult, error) {
 	// a citation froe can corroborate from one it cannot - see surroundings().
 	opened := map[string][]openRange{}
 
+	onTool := func(name, args, result string) {
+		if path, r, ok := readRangeFromCall(name, args, result); ok {
+			opened[path] = append(opened[path], r)
+			return
+		}
+		s, ok := searchFromGrepCall(name, args, result)
+		if !ok || seen[s.Pattern] {
+			return
+		}
+		seen[s.Pattern] = true
+		searches = append(searches, s)
+	}
+
 	var metrics *agent.Metrics
 	runErr := renderAgentTap(ctx, a.Run(ctx, o.Issue), st, o.ShowReasoning, &runTap{
-		Text: io.MultiWriter(answer, &raw),
-		OnTool: func(name, args, result string) {
-			if path, r, ok := readRangeFromCall(name, args, result); ok {
-				opened[path] = append(opened[path], r)
-				return
-			}
-			s, ok := searchFromGrepCall(name, args, result)
-			if !ok || seen[s.Pattern] {
-				return
-			}
-			seen[s.Pattern] = true
-			searches = append(searches, s)
-		},
+		Text:    io.MultiWriter(answer, &raw),
+		OnTool:  onTool,
 		Metrics: &metrics,
 	})
 	answer.Close()
@@ -166,19 +224,39 @@ func locate(ctx context.Context, o locateOpts) (*locateResult, error) {
 		searches = append(searches, s)
 	}
 
-	// Line numbers are corrected before anything else reads them: the sweep
-	// and the surroundings would otherwise work from the wrong line.
-	rel := relines(o.Root, raw.String())
-	found, missing := splitByExistence(o.Root, applyRelines(parseSites(raw.String()), rel))
-	res := &locateResult{Found: found, Missing: missing, Relined: rel, Metrics: metrics, RunErr: runErr}
+	res := checkAnswer(ctx, o.Root, raw.String(), searches, opened)
+	res.Metrics, res.RunErr = metrics, runErr
 
-	if len(found) > 0 {
-		res.Missed = sweepSites(ctx, o.Root, found, searches)
-		// A citation the run never opened has nothing corroborating it: the
-		// sweep only replays searches, and no search matches a line that does
-		// not contain the searched term. Position is the evidence left, and it
-		// is free.
-		res.Surrounding = surroundings(o.Root, found, opened)
+	// The sweep's findings go back to the model once, before the user sees
+	// them as a bare list. Measured 2026-09-24 on 10-locate-real-shape: in two
+	// runs of three the answer named one place, and the sweep found the other
+	// two - under ALSO MATCHING, unjudged, beside nothing that said which of
+	// them had to change. The model has read the file and can judge that; the
+	// sweep cannot. One turn, and only when there is something to judge.
+	if len(res.Missed) > 0 && runErr == nil {
+		if !o.Quiet {
+			fmt.Fprintf(os.Stderr, "  %s\n", st.yellow(fmt.Sprintf(
+				"↺ the sweep found %s the answer did not cite - asking once more",
+				plural(len(res.Missed), "matching line", "matching lines"))))
+		}
+		a.History = a.Transcript()
+		a.MaxTurns = recheckTurns
+		var raw2 strings.Builder
+		answer2 := newFenceStripper(o.Answer)
+		var metrics2 *agent.Metrics
+		err2 := renderAgentTap(ctx, a.Run(ctx, recheckPrompt(res.Missed)), st, o.ShowReasoning, &runTap{
+			Text:    io.MultiWriter(answer2, &raw2),
+			OnTool:  onTool,
+			Metrics: &metrics2,
+		})
+		answer2.Close()
+		// Only a complete second answer replaces the first. A recheck that
+		// failed or dropped the format must not cost the user what they had.
+		if err2 == nil && strings.TrimSpace(whereSection(raw2.String())) != "" {
+			res2 := checkAnswer(ctx, o.Root, raw2.String(), searches, opened)
+			res2.Metrics, res2.RunErr = metrics2, nil
+			res = res2
+		}
 	}
 
 	// A citation that is not in the tree is resolved rather than merely
@@ -186,6 +264,6 @@ func locate(ctx context.Context, o locateOpts) (*locateResult, error) {
 	// resolveMissing: the one measured case was a DECOY whose base name
 	// resolved cleanly, so swapping the path in would have endorsed the error
 	// froe had just caught.
-	res.Resolutions = resolveMissing(ctx, o.Root, missing, searches)
+	res.Resolutions = resolveMissing(ctx, o.Root, res.Missing, searches)
 	return res, nil
 }

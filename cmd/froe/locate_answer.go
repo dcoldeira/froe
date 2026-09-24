@@ -306,6 +306,9 @@ func sweepSites(ctx context.Context, root string, sites []site, searches []tools
 					continue
 				}
 				for _, m := range ms {
+					if !tools.EndsAtWord(m.Text, v) {
+						continue // the phrase is only the start of a longer word
+					}
 					if _, ok := found[m.Line]; !ok {
 						found[m.Line] = m.Text
 					}

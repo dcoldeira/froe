@@ -11,13 +11,14 @@
 # inside the list literal lands the reader in the right place; what is NOT
 # tolerated is the failure this task exists to catch - citing a decoy file, or
 # the path the report invented.
-# Grade the MODEL'S answer only: the last turn's text, up to froe's stats
-# line. froe appends its own context after that (AROUND THOSE LINES, ALSO
+# Grade the MODEL'S answer only: the text of the last turn before froe's
+# LAST stats line - locate may ask a second time, and the second answer is
+# the one that stands. froe appends its own context after that (AROUND THOSE LINES, ALSO
 # MATCHING) with real file:line citations in it, and grading the whole output
 # let those pass for the model's. Measured 2026-09-24: qwen3-nothink:8b cited
 # only the header in 09 and "passed" on a widths line froe printed itself.
 answer=$(mktemp)
-awk '/^── turn /{buf=""; next} /^ +[0-9]+ turns · /{printf "%s", buf; exit} {buf=buf $0 "\n"}' \
+awk '/^── turn /{buf=""; next} /^ +[0-9]+ turns · /{ans=buf; next} {buf=buf $0 "\n"} END{printf "%s", ans}' \
   "${1:-/dev/null}" > "$answer"
 # ...plus froe's own LINE NUMBERS CORRECTED section, which is not context but a
 # checked claim: the code the model quoted beside a citation, found on exactly
@@ -25,6 +26,15 @@ awk '/^── turn /{buf=""; next} /^ +[0-9]+ turns · /{printf "%s", buf; exit}
 # coupling in 2 of 3 runs of 09 and cited it two lines out each time.
 awk '/^LINE NUMBERS CORRECTED/{f=1; next} f && /^[A-Z]/{f=0} f' "${1:-/dev/null}" >> "$answer"
 out="$answer"
+# WHERE alone - the places the answer says to change. Naming a lookalike or a
+# decoy under WATCH OUT is what the answer is asked to do; citing one under
+# WHERE sends the user to edit it. With no WHERE heading the whole answer
+# counts, as it does for froe's own checks.
+where=$(mktemp)
+awk '/^[[:space:]]*#*[[:space:]]*\**[[:space:]]*WHERE/{buf=""; on=1; seen=1; next}
+     /^[[:space:]]*#*[[:space:]]*\**[[:space:]]*(WHAT IT IS|WATCH OUT)/{on=0}
+     on{buf=buf $0 "\n"} END{printf "%s", buf}' "$answer" > "$where"
+grep -qE '^[[:space:]]*#*[[:space:]]*\**[[:space:]]*WHERE' "$answer" || cp "$answer" "$where"
 F=src/qrl/reporting/witness_pdf_report.py
 fail() { echo "MISS: $1" >&2; exit 1; }
 
@@ -39,10 +49,10 @@ look=$(line_of "'Causal\nOrdering'")
 # The bands must not overlap, or one citation satisfies two criteria. The
 # header sits on the last line of the headers list and col_widths is two lines
 # below it, so the header band is hdr-1..hdr+1 and the width band is exact.
-cites() { # cites <first-line> <last-line>
-  local n
+cites() { # cites <first-line> <last-line> [file, default the whole answer]
+  local n in="${3:-$out}"
   for (( n = $1; n <= $2; n++ )); do
-    grep -qE "$F:$n\b" "$out" && return 0
+    grep -qE "$F:$n\b" "$in" && return 0
   done
   return 1
 }
@@ -63,13 +73,13 @@ grep -qE "src/qrl/witness/witness_pdf_report\.py:[0-9]+" "$out" && fail "cited t
 
 # 5. Did not cite a decoy. These match **/witness* and contain a causal-order
 #    term. Naming one in WATCH OUT is fine; citing one as a place is not.
-grep -qE "(backends/witness/witness_[a-z]+\.py|witness_endpoints\.py):[0-9]+" "$out" \
+grep -qE "(backends/witness/witness_[a-z]+\.py|witness_endpoints\.py):[0-9]+" "$where" \
   && fail "cited a decoy file as a place"
 
 # 6. Did not cite the lookalike: the DAG Details table's "Causal Ordering"
 #    header, a different table in the same file. Measured 2026-09-24:
 #    qwen3-nothink:8b listed it in WHERE as a third site to remove.
-cites $(( look - 1 )) $(( look + 1 )) && fail "cited the DAG Details lookalike near :$look"
+cites $(( look - 1 )) $(( look + 1 )) "$where" && fail "cited the DAG Details lookalike near :$look"
 
 # 7. Read-only is structural, so nothing may have changed on disk.
 git diff --quiet || fail "locate modified the working tree"

@@ -229,6 +229,41 @@ func RelaxSeparators(s Search) (Search, bool) {
 	}, true
 }
 
+// EndsAtWord reports whether text holds a match of s whose last word ends
+// there, rather than running on into a longer word.
+//
+// A search for a label is also a search for every longer word that starts with
+// it: "Causal Order" matches "Causal Ordering", and so does the relaxed
+// Causal.{0,3}Order. Measured 2026-09-24 on 10-locate-real-shape: the sweep
+// put both "Causal Ordering" lines - the lookalike table - beside the two real
+// sites it found, so the list could not be acted on as it stood.
+//
+// A word ends where a lowercase letter is NOT followed by another lowercase
+// letter. So "Ordering" is rejected, while causal_order_table and
+// CausalOrderTable are kept: an underscore or a capital starts a new word.
+func EndsAtWord(text string, s Search) bool {
+	pattern := s.Pattern
+	if s.Literal {
+		pattern = regexp.QuoteMeta(pattern)
+	}
+	if s.IgnoreCase {
+		pattern = "(?i)" + pattern
+	}
+	re, err := regexp.Compile(pattern)
+	if err != nil {
+		return true // cannot judge it, so do not hide it
+	}
+	for _, loc := range re.FindAllStringIndex(text, -1) {
+		end := loc[1]
+		if end >= len(text) || end == 0 || !isLower(text[end-1]) || !isLower(text[end]) {
+			return true
+		}
+	}
+	return false
+}
+
+func isLower(c byte) bool { return c >= 'a' && c <= 'z' }
+
 // Match is one matching line.
 type Match struct {
 	// Path is relative to the search root, and empty when one file was
