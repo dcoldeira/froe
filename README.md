@@ -145,8 +145,9 @@ permission gate and one session store.
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — how the pieces fit
 - [`docs/MODELS.md`](docs/MODELS.md) — the registry, hardware profiles, runtimes
 - [`docs/SETUP.md`](docs/SETUP.md) — bare machine to working install
-- `docs/DECISIONS.md`, `docs/ROADMAP.md`, `TESTING.md` — coming shortly, being
-  rewritten against fresh measurements
+- [`docs/ROADMAP.md`](docs/ROADMAP.md) — open work, each item from an observed problem
+- `docs/DECISIONS.md`, `TESTING.md` — coming shortly, being rewritten against
+  fresh measurements
 
 ## Evaluation
 

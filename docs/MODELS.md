@@ -19,7 +19,7 @@ local model today.
 | 27B **Bonsai 1-bit** (3.53 GiB) | **MEASURED: 3838/4096 MiB VRAM, loads in 5s** | Fully in VRAM @ ~100K ctx |
 | — generation | **MEASURED: ~4.5 tok/s** | not yet measured |
 
-Estimates from memory bandwidth, not measured — `froe bench` exists to replace
+Estimates from memory bandwidth, not measured — `froe bench` (planned, not yet built; see `docs/ROADMAP.md`) is meant to replace
 them with real numbers per machine. **Quantisation class dominates everything
 else**: the same 27B is a 16.5 GB CPU-bound crawl at Q4 and a 3.53 GiB
 near-resident model at 1.125 bpw. Never reason about a model from its parameter
@@ -187,8 +187,11 @@ Anthropic needs its own adapter for wire-format reasons only.
 
 ## 6. Bench harness
 
-`froe bench` runs a fixed task set against a model on the current machine and
-records real numbers into the session DB: prefill tok/s, generation tok/s,
+**Planned, not yet built** — see `docs/ROADMAP.md`. Today `eval/run.sh` measures
+pass rate and time only.
+
+`froe bench` will run a fixed task set against a model on the current machine and
+record real numbers into the session DB: prefill tok/s, generation tok/s,
 tool-call validity rate, task completion rate.
 
 This is what makes "find the perfect model" tractable. Public leaderboards
