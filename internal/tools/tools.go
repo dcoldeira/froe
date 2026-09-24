@@ -135,6 +135,10 @@ var ErrOutsideRoot = fmt.Errorf("path is outside the project root")
 //
 // Symlinks are resolved before the check so a link pointing outside cannot be
 // used as an escape hatch.
+// ResolvePath is resolve for callers outside this package: the agent's
+// leftover check reads the files a run edited, and must hold to the same root.
+func ResolvePath(env Env, path string) (string, error) { return resolve(env, path) }
+
 func resolve(env Env, path string) (string, error) {
 	if path == "" {
 		return "", fmt.Errorf("empty path")

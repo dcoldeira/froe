@@ -280,6 +280,11 @@ func renderAgentTap(ctx context.Context, events <-chan agent.Event, st style, sh
 					fmt.Fprintf(os.Stderr, "  %s %s\n", st.yellow("↺ not checked:"), st.dim(truncate(ev.Result, 300)))
 					continue
 				}
+				if ev.Tool == "(leftovers)" {
+					endText()
+					fmt.Fprintf(os.Stderr, "  %s %s\n", st.yellow("↺ still matching:"), st.dim(truncate(firstLines(ev.Result, 8), 600)))
+					continue
+				}
 				if tap.OnTool != nil {
 					name := ev.Tool
 					if name == "" {

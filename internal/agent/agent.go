@@ -307,6 +307,12 @@ func (a *Agent) run(ctx context.Context, task string, images []provider.ImageCon
 	// module would have shown it. checkNudged keeps the push to once per run.
 	editedSinceCheck, checkNudged := false, false
 
+	// terms is what this run is changing, for the leftover check at the end:
+	// see leftovers.go. Seeded from the task's own quoted phrases.
+	var terms changeTerms
+	terms.fromTask(task)
+	leftoverNudged := false
+
 	a.transcript = nil
 
 	msgs := make([]provider.Message, 0, 4+len(a.History))
@@ -448,6 +454,23 @@ func (a *Agent) run(ctx context.Context, task string, images []provider.ImageCon
 			answer, calls = clean, parsed
 		}
 
+		if len(calls) == 0 && !leftoverNudged && len(m.FilesChanged) > 0 && turn < maxTurns {
+			// Finished with edits: look in the edited files for what was being
+			// changed, in any spelling, before accepting that it is all done.
+			if ls := leftovers(ctx, a.Env, m.FilesChanged, terms.removed()); len(ls) > 0 {
+				leftoverNudged = true
+				nudge := leftoverNudge(ls)
+				done := provider.Message{Role: provider.RoleAssistant, Content: answer}
+				push := provider.Message{Role: provider.RoleUser, Content: nudge}
+				msgs = append(msgs, done, push)
+				a.transcript = append(a.transcript, done, push)
+				if !emit(Event{Kind: KindToolResult, Tool: "(leftovers)", Result: nudge}) {
+					return
+				}
+				continue
+			}
+		}
+
 		if len(calls) == 0 && editedSinceCheck && !checkNudged && turn < maxTurns &&
 			asksForCheck(task) && a.canRun("bash") {
 			// Finished with edits nobody has run. Send it back once to run the
@@ -481,6 +504,18 @@ func (a *Agent) run(ctx context.Context, task string, images []provider.ImageCon
 			fingerprint := call.Name + "\x00" + call.Arguments
 			prior := attempts[fingerprint]
 
+			// A repeat of a call whose result fitContext has since replaced is
+			// not a loop: the model asked again because what it had is GONE.
+			// Measured 2026-09-24: bonsai-27b on 07, 57k prompt tokens through
+			// an 8192 window, re-ran the same grep three times and was aborted
+			// as stuck. Such a repeat is served again below and not counted -
+			// it is froe's eviction, not the model's loop.
+			cachedResult, isCached := resultCache[fingerprint]
+			evicted := isCached && prior.count > 0 && !stillHeld(msgs, cachedResult)
+			if evicted {
+				prior.count--
+			}
+
 			if prior.count >= maxIdenticalCalls {
 				outcome := "made no progress - each call succeeded but nothing changed"
 				if prior.failed {
@@ -509,7 +544,11 @@ func (a *Agent) run(ctx context.Context, task string, images []provider.ImageCon
 
 			var result string
 			var denied bool
-			if _, ok := resultCache[fingerprint]; ok && prior.count > 0 {
+			if evicted {
+				emit(Event{Kind: KindToolStart, Tool: call.Name, Args: call.Arguments})
+				result = cachedResult
+				emit(Event{Kind: KindToolResult, Tool: call.Name, Result: result})
+			} else if _, ok := resultCache[fingerprint]; ok && prior.count > 0 {
 				emit(Event{Kind: KindToolStart, Tool: call.Name, Args: call.Arguments})
 				result = fmt.Sprintf(
 					"(identical to a call you already made to %s - the result is unchanged and is "+
@@ -531,7 +570,23 @@ func (a *Agent) run(ctx context.Context, task string, images []provider.ImageCon
 			if !denied {
 				if t, ok := a.Tools.Get(call.Name); ok && t.Mutating() {
 					m.recordChange(callPath(call.Arguments))
+					// What the run has read may be what it just changed. Every
+					// "you already made this call, the result is unchanged" rests
+					// on the files being as they were, so a change voids them all.
+					// Measured 2026-09-24: bonsai-27b edited a file, re-read it to
+					// see the result, was told it was unchanged, re-read it again,
+					// and was aborted as stuck - on 06 three runs of three.
+					resultCache = map[string]string{}
+					resultRepeats = map[string]int{}
+					explored, exploredSeen = nil, map[string]bool{}
+					for fp := range attempts {
+						name, _, _ := strings.Cut(fp, "\x00")
+						if t, ok := a.Tools.Get(name); ok && !t.Mutating() {
+							delete(attempts, fp)
+						}
+					}
 				}
+				terms.fromCall(call.Name, call.Arguments, result)
 				// Any command that ran counts as a check: a failing test is a
 				// non-zero exit, which bash reports as output, not as denial.
 				if call.Name == "bash" {
@@ -684,6 +739,17 @@ func verifyNudge(changed []string, check string) string {
 	return fmt.Sprintf("You changed %s but ran nothing afterwards. The task says: %q "+
 		"Run the one command that checks exactly that, now, with bash, and fix anything "+
 		"it reports. Then give your final answer.", what, check)
+}
+
+// stillHeld reports whether a tool result is still in the conversation as it
+// was returned, rather than replaced by fitContext.
+func stillHeld(msgs []provider.Message, result string) bool {
+	for _, m := range msgs {
+		if m.Role == provider.RoleTool && m.Content == result {
+			return true
+		}
+	}
+	return false
 }
 
 // MaxTurnsError ends a run that spent its whole turn budget.

@@ -101,6 +101,20 @@ func (Edit) Run(ctx context.Context, args json.RawMessage, env Env) (string, err
 // indented Go file with spaces and the edit silently fails. "read the file and
 // match it exactly" is useless advice when the model believes it did.
 func diagnoseMismatch(content, old string) string {
+	// A line break where the file has the two characters \ and n. Source code
+	// is full of escaped newlines inside strings, and a model that writes
+	// "Causal\nOrder" into a JSON argument sends a real line break. Measured
+	// 2026-09-24: qwen3-nothink:8b, told exactly which line held
+	// 'Causal\nOrder', retried the same edit until it was aborted - the
+	// generic advice below never names the one thing that was wrong.
+	if strings.Contains(old, "\n") && !strings.Contains(content, old) {
+		if escaped := strings.ReplaceAll(old, "\n", `\n`); strings.Contains(content, escaped) {
+			return " - the file has a backslash followed by n (the two characters \\ and n, " +
+				"an escape inside a string), where your old_string has a real line break. " +
+				"In the JSON arguments write it as \\\\n so it arrives as \\n, " +
+				"and do the same in new_string."
+		}
+	}
 	norm := func(s string) string {
 		var b strings.Builder
 		for _, line := range strings.Split(s, "\n") {
