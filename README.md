@@ -74,9 +74,8 @@ engineering judgement.
 phantom path, two turns *after* it had already edited the real file.
 
 So the state lives in you and in the conversation, rather than in a context
-window that cannot hold it. The full decision log (D26 and the rest) is being
-rewritten against fresh measurements and will land in `docs/DECISIONS.md`
-shortly.
+window that cannot hold it. This is decision D8 in
+[`docs/DECISIONS.md`](docs/DECISIONS.md).
 
 ### The second half of the answer: check the model after it stops
 
@@ -146,23 +145,32 @@ permission gate and one session store.
 - [`docs/MODELS.md`](docs/MODELS.md) — the registry, hardware profiles, runtimes
 - [`docs/SETUP.md`](docs/SETUP.md) — bare machine to working install
 - [`docs/ROADMAP.md`](docs/ROADMAP.md) — open work, each item from an observed problem
-- `docs/DECISIONS.md`, `TESTING.md` — coming shortly, being rewritten against
-  fresh measurements
+- [`docs/DECISIONS.md`](docs/DECISIONS.md) — the design decisions and where each is enforced
+- [`TESTING.md`](TESTING.md) — unit tests, the switched-off rule, eval hygiene
 
 ## Evaluation
 
-`eval/` holds a handful of tasks, each scored as a **pass rate over repeats**
-rather than a single run — variance between identical runs of an agent is
-large enough to swamp the effect of a real fix, so one run cannot tell you
-whether a change helped. A task can name the command it exercises, so a
-stepwise command is measured as itself instead of being approximated with
-`do`. More tasks (including the ones exercising `froe locate`) are being
-rewritten against fresh measurements and will land shortly.
+`eval/` holds ten tasks, each scored as a **pass rate over repeats** against a
+120 s bar per run. Variance between identical runs of an agent is large enough
+to swamp the effect of a real fix, so one run cannot tell you whether a change
+helped. A task can name the command it exercises, so `froe locate` is measured
+as itself instead of being approximated with `do`.
 
 ```bash
 bash eval/run.sh            # all tasks
 ONLY=01-fix-panic bash eval/run.sh
 ```
+
+Latest, same build, 3 runs per task, on an 8 GB RTX 4060 laptop (2026-09-25):
+
+| Model | Runtime | Score | Suite time |
+|---|---|---|---|
+| Bonsai 27B (1-bit) | LM Studio | 24/30 | 23m19s |
+| **Ministral 3 8B** (default) | LM Studio | 23/30 | 6m39s |
+| Ministral 3 3B | LM Studio | 19/30 | 3m39s |
+
+The full table, the tasks and the failure modes are in
+[`eval/README.md`](eval/README.md).
 
 ## Status, honestly
 
