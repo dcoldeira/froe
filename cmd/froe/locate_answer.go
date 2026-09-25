@@ -422,14 +422,13 @@ const maxIssueSearches = 3
 //
 // A cited path that is not in the tree used to be a line on stderr and nothing
 // more: the answer kept the bad citation, and the user was left to work out
-// what was meant. Measured 2026-09-17, mistral-medium cited
-// "services/billing/invoices/invoices_endpoints.py:10" on all three runs of
-// 10-locate-real-shape. The file exists — at the tree root, not in that
-// directory — so the model had found something real and mis-stated where it
-// was.
+// what was meant. Measured 2026-09-17, mistral-medium cited a file under a
+// directory it does not live in on all three runs of 10-locate-real-shape.
+// The file exists — at the tree root, not in that directory — so the model
+// had found something real and mis-stated where it was.
 //
 // The obvious fix is to resolve the base name and swap the path in. It is
-// WRONG, and the same fixture proves it: `ciu_endpoints.py` is a DECOY there,
+// WRONG, and the same fixture proves it: a same-named file is a DECOY there,
 // carrying a shipping term while being nowhere near the site. Promoting it
 // would convert an error froe had DETECTED into one froe ENDORSED, which is
 // strictly worse than the stderr line it replaced.
@@ -550,8 +549,8 @@ func renderResolutions(rs []resolution) string {
 // So: print what surrounds a citation the run never opened. The gate was
 // ToolCalls == 0 until 2026-09-18, which was too narrow by exactly one tool
 // call. Measured on two real production issues: every run made ONE grep and
-// then answered, so the block never fired - and in #666 the `col_widths`
-// coupling sat three lines under a cited header in BE_tables.py, inside
+// then answered, so the block never fired - and in one of them a
+// `col_widths` coupling sat three lines under a cited header, inside
 // surroundRadius, and went unreported three times running.
 //
 // A grep hit is not a reading. What corroborates a citation is having opened

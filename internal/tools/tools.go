@@ -211,11 +211,9 @@ func decode(args json.RawMessage, v any) error {
 // produce four different strings. A loop detector keyed on result text sees
 // four distinct outcomes and never fires.
 //
-// Observed on the third issue-657 run: turns 12-23 rewording globs
-// (services/invoices/*, **/invoices_pdf*, **/invoices*report*, ...) for a
-// path named in the issue that does not exist, two turns after the real
-// file had been found and edited. Nothing caught it; the run burned its
-// whole budget.
+// Observed on a real-issue run: turns 12-23 rewording globs for a path
+// named in the issue that does not exist, two turns after the real file had
+// been found and edited. Nothing caught it; the run burned its whole budget.
 //
 // The prefixes live here, beside the predicate, so a new wording cannot be
 // added in one place and forgotten in the other.

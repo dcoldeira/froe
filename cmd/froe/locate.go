@@ -114,7 +114,7 @@ func runLocate(ctx context.Context, args []string) error {
 
 	issue := strings.TrimSpace(strings.Join(fs.Args(), " "))
 	if issue == "" {
-		// Allow piping a whole issue body: `gh issue view 664 | froe locate`
+		// Allow piping a whole issue body: `gh issue view <n> | froe locate`
 		if stat, err := os.Stdin.Stat(); err == nil && stat.Mode()&os.ModeCharDevice == 0 {
 			b, _ := io.ReadAll(os.Stdin)
 			issue = strings.TrimSpace(string(b))

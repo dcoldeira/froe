@@ -270,7 +270,8 @@ type RunRecord struct {
 }
 
 // SaveRun records run metrics. This is the corpus `froe bench` aggregates
-// (D9): real numbers from real work, not a synthetic benchmark.
+// (planned, see docs/ROADMAP.md): real numbers from real work, not a
+// synthetic benchmark.
 func (s *Store) SaveRun(r RunRecord) error {
 	_, err := s.db.Exec(`INSERT INTO runs
 		(session_id, model, turns, tool_calls, tool_errors,

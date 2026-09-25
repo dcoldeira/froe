@@ -21,7 +21,7 @@ import (
 //
 // So froe runs those searches itself and hands the model the lines. The model
 // stops searching and starts judging, which is the part it is actually good at.
-// Same principle as D26: the mechanical half belongs in Go.
+// Same principle as D9: the mechanical half belongs in Go.
 
 const (
 	// evidenceMaxFiles bounds how many files one term reports. A term that
