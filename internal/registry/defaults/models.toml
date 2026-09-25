@@ -205,6 +205,52 @@ tool_strategy = "native"
 vision        = true
 roles         = ["main"]
 
+# The same weights on LM Studio. Measured 2026-09-25, full eval suite, 3 runs
+# per task, 8K context, 120s bar, on an RTX 4060 8 GB laptop:
+#   ministral-3-3b-lmstudio   19/30   3m39s
+#   ministral-3-8b-lmstudio   23/30   6m39s   <- default
+#   ministral-3-14b-lmstudio  21/30  19m56s   (spills past 8 GB VRAM; 3 timeouts)
+#   bonsai-27b-lmstudio       24/30  23m19s
+#   ministral-3:8b (Ollama)   19/30   6m24s   (Ollama's tool-call parser rejects
+#                                              raw tabs in Go code: HTTP 500)
+# The 8B matches Bonsai within one run at 3.5x the speed, so it is the default.
+[[model]]
+id            = "ministral-3-8b-lmstudio"
+runtime_id    = "mistralai/ministral-3-8b"   # lms get mistralai/ministral-3-8b@q4_k_m
+runtime       = "lmstudio"
+params_b      = 8
+quant         = "Q4_K_M"
+size_gb       = 6.06
+peak_mb       = 5775          # MEASURED 2026-09-25: 5.64 GiB loaded @ 8K ctx
+peak_ctx      = 8192
+ctx_max       = 262144
+tool_strategy = "native"
+roles         = ["default", "main"]
+
+[[model]]
+id            = "ministral-3-3b-lmstudio"
+runtime_id    = "mistralai/ministral-3-3b"
+runtime       = "lmstudio"
+params_b      = 3
+quant         = "Q4_K_M"
+size_gb       = 2.99
+ctx_max       = 262144
+tool_strategy = "native"
+roles         = ["main"]
+notes         = "Low-resource option: 19/30 in 3m39s. Misses the harder locate tasks."
+
+[[model]]
+id            = "ministral-3-14b-lmstudio"
+runtime_id    = "mistralai/ministral-3-14b"
+runtime       = "lmstudio"
+params_b      = 14
+quant         = "Q4_K_M"
+size_gb       = 9.12
+ctx_max       = 262144
+tool_strategy = "native"
+roles         = ["heavy"]
+notes         = "21/30 but 19m56s on 8 GB VRAM. Better per task than the 8B; worth it on a bigger card."
+
 [[model]]
 id            = "ministral-3:14b"
 runtime       = "ollama"

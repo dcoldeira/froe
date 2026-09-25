@@ -189,3 +189,40 @@ func TestChooseByRoleSkipsModelsWhoseRuntimeIsDown(t *testing.T) {
 		t.Errorf("got %q, want the model whose runtime is up", got.ID)
 	}
 }
+
+// "default" names the measured pick and beats smaller "main" models; without
+// an available default, smallest "main" still wins.
+func TestDefaultRoleBeatsSmallerMain(t *testing.T) {
+	live := func(rt string) bool { return rt == "live" }
+	models := []registry.Model{
+		{ID: "tiny-main", Runtime: "live", SizeGB: 3, Roles: []string{"main"}},
+		{ID: "picked", Runtime: "live", SizeGB: 6, Roles: []string{"default", "main"}},
+	}
+	if m, _ := ChooseByRole(models, RolePreference, live); m.ID != "picked" {
+		t.Fatalf("picked %s, want the default-role model", m.ID)
+	}
+	models[1].Runtime = "dead"
+	if m, _ := ChooseByRole(models, RolePreference, live); m.ID != "tiny-main" {
+		t.Fatalf("picked %s, want fallback to smallest main", m.ID)
+	}
+}
+
+// A model its running runtime does not have is never the default; the next
+// candidate is picked instead. A runtime that cannot list models keeps all.
+func TestUnpulledModelIsNotPicked(t *testing.T) {
+	models := []registry.Model{
+		{ID: "wanted", Runtime: "lms", SizeGB: 6, Roles: []string{"default", "main"}},
+		{ID: "have", Runtime: "lms", SizeGB: 4, Roles: []string{"main"}},
+		{ID: "unlisted", Runtime: "quiet", SizeGB: 9, Roles: []string{"main"}},
+	}
+	present := map[string]map[string]bool{"lms": {"have": true}}
+	live := func(string) bool { return true }
+	m, _ := ChooseByRole(keepPresent(models, present), RolePreference, live)
+	if m.ID != "have" {
+		t.Fatalf("picked %s, want the pulled main model", m.ID)
+	}
+	kept := keepPresent(models, present)
+	if len(kept) != 2 || kept[1].ID != "unlisted" {
+		t.Fatalf("kept %+v, want have and unlisted", kept)
+	}
+}

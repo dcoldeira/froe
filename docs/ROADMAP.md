@@ -39,17 +39,6 @@ The workaround is a model variant with `PARAMETER num_ctx 8192`.
 To do: have `froe` set or read the real window for Ollama instead of assuming
 it, and make `froe doctor` warn when the two disagree.
 
-## Default model choice ignores whether a model is pulled
-
-`resolve.ChooseByRole` checks that a model's runtime is up, not that the model
-itself is present. With Ollama running, a registry entry that was never pulled
-can be picked as the default, and the run fails on the first request. Seen
-2026-09-24: plain `froe do` resolved to `qwen2.5-coder:7b`, which was not
-pulled. An explicit `-model` is unaffected.
-
-To do: skip models the runtime reports as absent, the way `froe doctor`
-already labels them "not pulled".
-
 ## Makefile Go path
 
 The Makefile defaults `GO` to `~/.local/go/bin/go`. On a machine where Go is

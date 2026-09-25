@@ -20,10 +20,12 @@ type Choice struct {
 	Runtime registry.Runtime
 }
 
-// RolePreference is the order roles are tried when nothing is pinned. "main"
-// first because ask is interactive; "fast" is a usable fallback, "heavy" a last
-// resort since it is the slowest thing on the box.
-var RolePreference = []string{"main", "fast", "heavy"}
+// RolePreference is the order roles are tried when nothing is pinned.
+// "default" names the one measured pick, so it wins over smaller "main"
+// models without an ordering trick (see ChooseByRole). "main" next because ask
+// is interactive; "fast" is a usable fallback, "heavy" a last resort since it
+// is the slowest thing on the box.
+var RolePreference = []string{"default", "main", "fast", "heavy"}
 
 // Pick chooses a model.
 //
@@ -59,11 +61,41 @@ func PickWithPreference(ctx context.Context, cat *registry.Catalogue, id string,
 
 	probes := probe.All(ctx, cat.Runtimes)
 
-	if m, ok := ChooseByRole(cat.Models, pref, func(rt string) bool { return probes[rt].OK }); ok {
+	if m, ok := ChooseByRole(pulled(ctx, cat, probes), pref, func(rt string) bool { return probes[rt].OK }); ok {
 		return Choice{Model: m, Runtime: cat.Runtimes[m.Runtime]}, nil
 	}
 
 	return Choice{}, fmt.Errorf("no model is available: %s", summarise(probes))
+}
+
+// pulled drops models a running local runtime reports it does not have.
+//
+// A runtime answering is not the same as it having the model. Seen
+// 2026-09-24: plain `froe do` resolved to qwen2.5-coder:7b, never pulled, and
+// failed on the first request. It matters more since the default became an
+// LM Studio model that a fresh install will not have. A runtime that cannot
+// list its models (nil) keeps them all, and hosted runtimes are not asked:
+// probing should not call a vendor.
+func pulled(ctx context.Context, cat *registry.Catalogue, probes map[string]probe.Report) []registry.Model {
+	present := map[string]map[string]bool{}
+	for name, rep := range probes {
+		if rt := cat.Runtimes[name]; rep.OK && rt.APIKeyEnv == "" {
+			present[name] = probe.ModelsPresent(ctx, rt)
+		}
+	}
+	return keepPresent(cat.Models, present)
+}
+
+// keepPresent is pulled without the network, for tests.
+func keepPresent(models []registry.Model, present map[string]map[string]bool) []registry.Model {
+	out := make([]registry.Model, 0, len(models))
+	for _, m := range models {
+		if have := present[m.Runtime]; have != nil && !have[m.ServeID()] {
+			continue
+		}
+		out = append(out, m)
+	}
+	return out
 }
 
 // ChooseByRole picks the model to use for the first role in pref that has an
