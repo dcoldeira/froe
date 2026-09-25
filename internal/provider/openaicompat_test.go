@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -319,5 +320,76 @@ func TestOpenAICompatContentStaysStringWithoutImages(t *testing.T) {
 	msg := msgs[0].(map[string]any)
 	if _, isString := msg["content"].(string); !isString {
 		t.Errorf("content = %T, want a plain string when no image is attached", msg["content"])
+	}
+}
+
+// Ollama streams each parallel call whole, every one at index 0, with its own
+// id. They are separate calls, not fragments of one.
+func TestOpenAICompatSplitsParallelCallsSharingAnIndex(t *testing.T) {
+	srv := sseServer(t, []string{
+		`data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_a","function":{"name":"read_file","arguments":"{\"path\":\"a.go\"}"}}]}}]}` + "\n\n",
+		`data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_b","function":{"name":"read_file","arguments":"{\"path\":\"b.go\"}"}}]}}]}` + "\n\n",
+		"data: [DONE]\n\n",
+	}, nil)
+	defer srv.Close()
+
+	c := NewOpenAICompat("test", srv.URL, "", Caps{})
+	ch, _ := c.Chat(context.Background(), Request{Model: "m"})
+	_, _, tools, _, _ := collect(t, ch)
+
+	if len(tools) != 2 {
+		t.Fatalf("got %d tool calls, want 2: %+v", len(tools), tools)
+	}
+	if tools[0].Arguments != `{"path":"a.go"}` || tools[1].Arguments != `{"path":"b.go"}` {
+		t.Errorf("calls = %+v", tools)
+	}
+}
+
+// Replaying unparseable arguments gets the whole request refused by Ollama.
+func TestOpenAICompatReplaysInvalidToolArgumentsAsEmptyObject(t *testing.T) {
+	var captured map[string]any
+	srv := sseServer(t, []string{"data: [DONE]\n\n"}, &captured)
+	defer srv.Close()
+
+	c := NewOpenAICompat("test", srv.URL, "", Caps{Streaming: true})
+	ch, _ := c.Chat(context.Background(), Request{Model: "m", Messages: []Message{{
+		Role: RoleAssistant, ToolCalls: []ToolCall{{ID: "1", Name: "edit_file", Arguments: `{"a":1}{"b":2}`}},
+	}}})
+	collect(t, ch)
+
+	msgs, _ := captured["messages"].([]any)
+	fn := msgs[0].(map[string]any)["tool_calls"].([]any)[0].(map[string]any)["function"].(map[string]any)
+	if fn["arguments"] != "{}" {
+		t.Errorf("arguments = %v, want \"{}\"", fn["arguments"])
+	}
+}
+
+// A 500 that is the backend's JSON parser failing on a tool call is typed, so
+// the agent can retry it; any other 500 is not.
+func TestOpenAICompatTypesToolCallParseFailures(t *testing.T) {
+	for _, tc := range []struct {
+		body  string
+		tools bool
+		want  bool
+	}{
+		{`{"error":"unexpected end of JSON input"}`, true, true},
+		{`{"error":"invalid character 'o' looking for beginning of object key string"}`, true, true},
+		{`{"error":"unexpected end of JSON input"}`, false, false},
+		{`{"error":"model runner has unexpectedly stopped"}`, true, false},
+	} {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusInternalServerError)
+			io.WriteString(w, tc.body)
+		}))
+		req := Request{Model: "m"}
+		if tc.tools {
+			req.Tools = []ToolDef{{Name: "read_file"}}
+		}
+		_, err := NewOpenAICompat("test", srv.URL, "", Caps{}).Chat(context.Background(), req)
+		srv.Close()
+		var fe *ToolCallFormatError
+		if got := errors.As(err, &fe); got != tc.want {
+			t.Errorf("%s (tools %v): typed = %v, want %v (err %v)", tc.body, tc.tools, got, tc.want, err)
+		}
 	}
 }

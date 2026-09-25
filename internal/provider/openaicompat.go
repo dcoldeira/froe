@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -118,8 +119,13 @@ func (c *OpenAICompat) buildBody(req Request) map[string]any {
 			// message is replayed back in history on a later turn - LM Studio
 			// then rejects the whole request as a malformed payload. "{}" is
 			// what an empty-but-valid arguments object looks like on the wire.
+			//
+			// Arguments that are not valid JSON go back as "{}" too. The tool
+			// already told the model its call was malformed; Ollama answers a
+			// history holding the raw text with HTTP 400 "invalid tool call
+			// arguments" and the whole run ends there.
 			o.Function.Arguments = tc.Arguments
-			if o.Function.Arguments == "" {
+			if !json.Valid([]byte(o.Function.Arguments)) {
 				o.Function.Arguments = "{}"
 			}
 			om.ToolCalls = append(om.ToolCalls, o)
@@ -193,7 +199,11 @@ func (c *OpenAICompat) Chat(ctx context.Context, req Request) (<-chan Event, err
 	if resp.StatusCode != http.StatusOK {
 		defer resp.Body.Close()
 		snippet, _ := io.ReadAll(io.LimitReader(resp.Body, 800))
-		return nil, fmt.Errorf("%s: %s", c.name, explainHTTPError(c.name, resp.StatusCode, snippet))
+		msg := fmt.Sprintf("%s: %s", c.name, explainHTTPError(c.name, resp.StatusCode, snippet))
+		if resp.StatusCode == http.StatusInternalServerError && len(req.Tools) > 0 && isJSONParseError(string(snippet)) {
+			return nil, &ToolCallFormatError{Msg: msg}
+		}
+		return nil, errors.New(msg)
 	}
 
 	out := make(chan Event, 32)
@@ -211,6 +221,7 @@ func (c *OpenAICompat) stream(ctx context.Context, resp *http.Response, start ti
 		ttftSet    bool
 		textChunks int
 		pending    = map[int]*ToolCall{}
+		order      []*ToolCall
 		think      thinkFilter
 	)
 
@@ -288,11 +299,18 @@ func (c *OpenAICompat) stream(ctx context.Context, resp *http.Response, start ti
 			}
 			// Tool calls stream in fragments keyed by index and must be
 			// reassembled before they mean anything.
+			//
+			// A fragment carrying a NEW id is a new call even at a used index.
+			// Ollama sends each parallel call whole, every one at index 0
+			// (measured 2026-09-25, ministral-3:8b): keyed on index alone, two
+			// edit_file calls fused into one '{...}{...}' argument string, the
+			// tool rejected it, and replaying it in history got HTTP 400.
 			for _, tc := range d.ToolCalls {
 				p, ok := pending[tc.Index]
-				if !ok {
+				if !ok || (tc.ID != "" && p.ID != "" && tc.ID != p.ID) {
 					p = &ToolCall{}
 					pending[tc.Index] = p
+					order = append(order, p)
 				}
 				if tc.ID != "" {
 					p.ID = tc.ID
@@ -310,11 +328,9 @@ func (c *OpenAICompat) stream(ctx context.Context, resp *http.Response, start ti
 		return
 	}
 
-	for i := 0; i < len(pending); i++ {
-		if tc, ok := pending[i]; ok {
-			if !emit(Event{Kind: KindToolCall, ToolCall: tc}) {
-				return
-			}
+	for _, tc := range order {
+		if !emit(Event{Kind: KindToolCall, ToolCall: tc}) {
+			return
 		}
 	}
 
@@ -372,4 +388,24 @@ func explainHTTPError(runtime string, status int, body []byte) string {
 		return fmt.Sprintf("out of memory: %s\n  another model is probably holding the GPU - try `froe doctor`, or a cpu_only model", msg)
 	}
 	return fmt.Sprintf("HTTP %d: %s", status, msg)
+}
+
+// ToolCallFormatError is a backend failing to parse the model's own tool call.
+// Ollama answers HTTP 500 when the model emits a call it cannot parse, and the
+// reply is lost: measured 2026-09-25, 8 of ministral-3:8b's 30 eval runs ended
+// this way. Sampling again usually produces a well-formed call, so the agent
+// retries rather than ending the run.
+type ToolCallFormatError struct{ Msg string }
+
+func (e *ToolCallFormatError) Error() string { return e.Msg }
+
+// isJSONParseError reports whether a server error body is Go's JSON decoder
+// complaining, which is how Ollama's tool-call parser fails.
+func isJSONParseError(body string) bool {
+	for _, s := range []string{"unexpected end of JSON input", "invalid character", "error parsing tool call"} {
+		if strings.Contains(body, s) {
+			return true
+		}
+	}
+	return false
 }
