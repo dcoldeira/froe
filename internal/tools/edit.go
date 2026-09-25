@@ -70,6 +70,10 @@ func (Edit) Run(ctx context.Context, args json.RawMessage, env Env) (string, err
 			"or set replace_all true to change all %d", n, a.Path, n)
 	}
 
+	if err := leakedMarkup("new_string", a.New, content); err != nil {
+		return "", err
+	}
+
 	info, err := os.Stat(abs)
 	if err != nil {
 		return "", err

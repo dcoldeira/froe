@@ -41,6 +41,10 @@ func (Write) Run(ctx context.Context, args json.RawMessage, env Env) (string, er
 	if err != nil {
 		return "", err
 	}
+	existing, _ := os.ReadFile(abs)
+	if err := leakedMarkup("content", a.Content, string(existing)); err != nil {
+		return "", err
+	}
 	if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
 		return "", err
 	}
