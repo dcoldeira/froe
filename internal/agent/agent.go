@@ -4,6 +4,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -84,8 +85,8 @@ func noMatchKey(tool string) string { return tool + "\x00\x00no-match" }
 // budgets. Deliberately looser than maxIdenticalCalls: trying a
 // few patterns that miss is ordinary exploration, so punishing it at 3 would
 // repeat the 2026-09-12 overcorrection. Five consecutive dead ends is not
-// exploration - measured on the third issue-657 run, which reworded a glob
-// for a nonexistent path across a dozen turns and never stopped.
+// exploration - measured on a real-issue run that reworded a glob for a
+// nonexistent path across a dozen turns and never stopped.
 const maxFruitlessSearches = 5
 
 // contextReserveShare is the fraction of the context window fitContext keeps
@@ -181,6 +182,10 @@ type Agent struct {
 	// MaxToolResultTokens caps a single tool result. Zero derives it from the
 	// model's context window.
 	MaxToolResultTokens int
+	// ApplyEdits marks a run whose job is to change files (froe do). One that
+	// ends having only shown the change in its answer is sent back once to
+	// make it. Chat leaves it off: there a code block is often the answer.
+	ApplyEdits bool
 }
 
 // Transcript returns the messages this run produced, excluding the system
@@ -313,6 +318,12 @@ func (a *Agent) run(ctx context.Context, task string, images []provider.ImageCon
 	terms.fromTask(task)
 	leftoverNudged := false
 
+	// applyNudged keeps the "you only showed it" push to once per run.
+	// formatRetries counts turns re-asked because the backend could not parse
+	// the model's tool call, and formatHint carries the note for the re-ask.
+	applyNudged := false
+	formatRetries, formatHint := 0, ""
+
 	a.transcript = nil
 
 	msgs := make([]provider.Message, 0, 4+len(a.History))
@@ -358,11 +369,11 @@ func (a *Agent) run(ctx context.Context, task string, images []provider.ImageCon
 		// never accumulate as permanent history the way a nudge message does.
 		reqMsgs := msgs
 		if len(explored) > 0 {
-			reqMsgs = append(append([]provider.Message(nil), msgs...), provider.Message{
-				Role: provider.RoleUser,
-				Content: "Already explored, do not repeat unless you need a different " +
-					"part of the same file/output:\n- " + strings.Join(explored, "\n- "),
-			})
+			reqMsgs = withNote(reqMsgs, "Already explored, do not repeat unless you need a different "+
+				"part of the same file/output:\n- "+strings.Join(explored, "\n- "))
+		}
+		if formatHint != "" {
+			reqMsgs = withNote(reqMsgs, formatHint)
 		}
 		req := provider.RequestFor(a.Model, reqMsgs)
 		req.MaxTokens = 2048
@@ -380,10 +391,24 @@ func (a *Agent) run(ctx context.Context, task string, images []provider.ImageCon
 		}
 
 		events, err := a.Provider.Chat(ctx, req)
+		var formatErr *provider.ToolCallFormatError
+		if errors.As(err, &formatErr) && formatRetries < maxFormatRetries && turn < maxTurns {
+			// The backend lost the reply because it could not parse the tool
+			// call in it. Ask again with a note rather than end the run; the
+			// note also changes the prompt, so the retry is not a replay.
+			formatRetries++
+			m.ToolErrors++
+			formatHint = formatRetryHint
+			if !emit(Event{Kind: KindToolResult, Tool: "(retry)", Result: formatErr.Error()}) {
+				return
+			}
+			continue
+		}
 		if err != nil {
 			fail(err)
 			return
 		}
+		formatHint = ""
 
 		var (
 			text  strings.Builder
@@ -454,6 +479,21 @@ func (a *Agent) run(ctx context.Context, task string, images []provider.ImageCon
 			answer, calls = clean, parsed
 		}
 
+		if len(calls) == 0 && a.ApplyEdits && !applyNudged && len(m.FilesChanged) == 0 &&
+			turn < maxTurns && showsCode(answer) && a.canRun("edit_file") {
+			// The answer holds the change as a code block and no file was
+			// touched: it told the user what to do instead of doing it.
+			applyNudged = true
+			done := provider.Message{Role: provider.RoleAssistant, Content: answer}
+			push := provider.Message{Role: provider.RoleUser, Content: applyNudge}
+			msgs = append(msgs, done, push)
+			a.transcript = append(a.transcript, done, push)
+			if !emit(Event{Kind: KindToolResult, Tool: "(apply)", Result: applyNudge}) {
+				return
+			}
+			continue
+		}
+
 		if len(calls) == 0 && !leftoverNudged && len(m.FilesChanged) > 0 && turn < maxTurns {
 			// Finished with edits: look in the edited files for what was being
 			// changed, in any spelling, before accepting that it is all done.
@@ -501,6 +541,7 @@ func (a *Agent) run(ctx context.Context, task string, images []provider.ImageCon
 		a.transcript = append(a.transcript, assistantMsg)
 
 		for _, call := range calls {
+			repeatNote := ""
 			fingerprint := call.Name + "\x00" + call.Arguments
 			prior := attempts[fingerprint]
 
@@ -539,7 +580,9 @@ func (a *Agent) run(ctx context.Context, task string, images []provider.ImageCon
 						"You already called %s with exactly these arguments and it failed. "+
 							"Do not repeat it. Use glob to discover the real paths first.", call.Name)
 				}
-				msgs = append(msgs, provider.Message{Role: provider.RoleUser, Content: hint})
+				// Carried on this call's own result: a user message between a
+				// tool call and its result is refused by strict templates.
+				repeatNote = hint
 			}
 
 			var result string
@@ -670,6 +713,9 @@ func (a *Agent) run(ctx context.Context, task string, images []provider.ImageCon
 				}
 			}
 
+			if repeatNote != "" {
+				result += "\n\n" + repeatNote
+			}
 			toolMsg := provider.Message{Role: provider.RoleTool, ToolCallID: call.ID, Content: result}
 			msgs = append(msgs, toolMsg)
 			a.transcript = append(a.transcript, toolMsg)
@@ -692,6 +738,24 @@ func (a *Agent) run(ctx context.Context, task string, images []provider.ImageCon
 	m.Elapsed = time.Since(start)
 	emit(Event{Kind: KindError, Err: &MaxTurnsError{Turns: maxTurns}, Metrics: &m})
 }
+
+// maxFormatRetries bounds re-asks after the backend fails to parse a tool
+// call. A model that keeps emitting unparseable calls will not be rescued by a
+// third try, and each one is a full turn of a local model.
+const maxFormatRetries = 2
+
+const formatRetryHint = "Your last reply could not be read: the tool call in it was not valid JSON. " +
+	"Send it again as one tool call whose arguments are a single complete JSON object."
+
+// applyNudge is sent when a run that must change files ends having only shown
+// the change. Measured 2026-09-25: ministral-3:8b answered 03-add-function
+// three runs of three with a correct function in a code block and "Run tests
+// to confirm", having never called edit_file.
+const applyNudge = "You showed the change but did not make it - no file has been modified. " +
+	"Apply it now with edit_file (or write_file for a new file), then check it as the task asks."
+
+// showsCode reports whether an answer contains a fenced code block.
+func showsCode(answer string) bool { return strings.Count(answer, "```") >= 2 }
 
 // checkWords are what a task says when it expects its result to be checked:
 // "run the tests", "must still build", "import cleanly". The verify push is
@@ -739,6 +803,21 @@ func verifyNudge(changed []string, check string) string {
 	return fmt.Sprintf("You changed %s but ran nothing afterwards. The task says: %q "+
 		"Run the one command that checks exactly that, now, with bash, and fix anything "+
 		"it reports. Then give your final answer.", what, check)
+}
+
+// withNote returns a copy of msgs with froe's note added. After a tool result
+// it is folded into that result rather than sent as a user message: Mistral's
+// chat template refuses a user turn straight after a tool result. Measured
+// 2026-09-25, ministral-3-8b on LM Studio: 25 of 30 eval runs ended on turn 2
+// with "conversation roles must alternate user and assistant roles except for
+// tool calls and results".
+func withNote(msgs []provider.Message, note string) []provider.Message {
+	out := append([]provider.Message(nil), msgs...)
+	if n := len(out); n > 0 && out[n-1].Role == provider.RoleTool {
+		out[n-1].Content += "\n\n" + note
+		return out
+	}
+	return append(out, provider.Message{Role: provider.RoleUser, Content: note})
 }
 
 // stillHeld reports whether a tool result is still in the conversation as it

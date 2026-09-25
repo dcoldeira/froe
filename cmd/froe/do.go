@@ -147,6 +147,7 @@ func runDo(ctx context.Context, args []string) error {
 		MaxTurns:            *maxTurns,
 		System:              sys,
 		Context:             projectCtx,
+		ApplyEdits:          true,
 	}
 
 	strategy := choice.Model.ToolStrategy
@@ -278,6 +279,16 @@ func renderAgentTap(ctx context.Context, events <-chan agent.Event, st style, sh
 				if ev.Tool == "(verify)" {
 					endText()
 					fmt.Fprintf(os.Stderr, "  %s %s\n", st.yellow("↺ not checked:"), st.dim(truncate(ev.Result, 300)))
+					continue
+				}
+				if ev.Tool == "(apply)" {
+					endText()
+					fmt.Fprintf(os.Stderr, "  %s %s\n", st.yellow("↺ not applied:"), st.dim(truncate(ev.Result, 300)))
+					continue
+				}
+				if ev.Tool == "(retry)" {
+					endText()
+					fmt.Fprintf(os.Stderr, "  %s %s\n", st.yellow("↺ retry:"), st.dim(truncate(ev.Result, 300)))
 					continue
 				}
 				if ev.Tool == "(leftovers)" {
