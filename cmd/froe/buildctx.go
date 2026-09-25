@@ -30,7 +30,8 @@ func buildContext(ctx context.Context, dir string, task string, ctxMax int, st s
 // overflowed the window at 22787 tokens even after the cap existed.
 func effectiveContext(ctx context.Context, m registry.Model, rt registry.Runtime, st style, quiet bool) int {
 	effective := m.CtxMax
-	n := probe.ContextSize(ctx, rt, m.ID)
+	// ServeID, not ID: the runtime knows the model by its own name.
+	n := probe.ContextSize(ctx, rt, m.ServeID())
 
 	switch {
 	case n > 0 && (effective <= 0 || n < effective):
@@ -45,10 +46,10 @@ func effectiveContext(ctx context.Context, m registry.Model, rt registry.Runtime
 		// A local runtime OWNS its loaded window, so silence means unknown,
 		// never "the registry maximum". Assuming the maximum sets
 		// clampResult's cap and fitContext's budget far above the real
-		// window and disables both at once - measured on the second
-		// issue-657 run, where an expired LM Studio TTL meant nothing was
-		// loaded at probe time and a 48 KB read killed the run at 28709
-		// tokens against a JIT-loaded 8192.
+		// window and disables both at once - measured on a real-issue run
+		// where an expired LM Studio TTL meant nothing was loaded at probe
+		// time and a 48 KB read killed the run at 28709 tokens against a
+		// JIT-loaded 8192.
 		if !quiet {
 			fmt.Fprintf(os.Stderr, "%s\n", st.yellow(fmt.Sprintf(
 				"  context: %s would not say what %s is loaded with - budgeting for %d, not the registry's %d. "+
