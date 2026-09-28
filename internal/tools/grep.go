@@ -62,6 +62,7 @@ func (Grep) Run(ctx context.Context, args json.RawMessage, env Env) (string, err
 		return "", fmt.Errorf("pattern is required")
 	}
 
+	a.Path, a.Glob = splitGlobPath(a.Path, a.Glob)
 	searchPath := a.Path
 	if searchPath == "" {
 		searchPath = "."
@@ -118,6 +119,11 @@ func (Grep) Run(ctx context.Context, args json.RawMessage, env Env) (string, err
 						formatMatches(lit, abs)), nil
 				}
 			}
+			// Same care as above: other spellings found are a success, so this
+			// must not start with the no-match prefix.
+			if extra := otherSpellings(ctx, rg, a, abs, nil); extra != "" {
+				return fmt.Sprintf("(no exact match for %q)\n%s", a.Pattern, extra), nil
+			}
 			return fmt.Sprintf(noMatchesForPrefix+"%q)", a.Pattern), nil
 		}
 		// Surface ripgrep's own message. "exit status 2" tells a model nothing
@@ -130,7 +136,90 @@ func (Grep) Run(ctx context.Context, args json.RawMessage, env Env) (string, err
 		return "", fmt.Errorf("ripgrep: %s", msg)
 	}
 
-	return formatMatches(out, abs), nil
+	result := formatMatches(out, abs)
+	if extra := otherSpellings(ctx, rg, a, abs, out); extra != "" {
+		result += "\n" + extra
+	}
+	return result, nil
+}
+
+// globMeta are the characters that make a path a glob rather than a directory.
+const globMeta = "*?[{"
+
+// splitGlobPath moves a glob the model put in path into glob.
+//
+// Measured 2026-09-28 on 07-multi-site: ministral-3-8b opened all three runs
+// with path "**/switch_table.py", ripgrep failed on a file that does not
+// exist, and the first turn of every run was spent on the retry. The intent
+// is unambiguous, so honour it: the part before the first wildcard is the
+// directory, the rest is the filter. An explicit glob is kept as given.
+func splitGlobPath(path, glob string) (string, string) {
+	if !strings.ContainsAny(path, globMeta) {
+		return path, glob
+	}
+	parts := strings.Split(filepath.ToSlash(path), "/")
+	i := 0
+	for i < len(parts) && !strings.ContainsAny(parts[i], globMeta) {
+		i++
+	}
+	dir := strings.Join(parts[:i], "/")
+	if glob == "" {
+		glob = strings.Join(parts[i:], "/")
+		// ripgrep matches a glob without a slash against the basename at any
+		// depth, which is what "**/x.py" means. A slash anchors it instead.
+		glob = strings.TrimPrefix(glob, "**/")
+	}
+	return dir, glob
+}
+
+// maxOtherSpellings caps the extra lines one search may add. More than this
+// and the words are too common to be one thing being searched for.
+const maxOtherSpellings = 12
+
+// otherSpellings finds the lines that hold the pattern's WORDS spelled another
+// way - "Causal\nOrder", causal_order - that the search itself missed.
+//
+// Measured 2026-09-28 on 07-multi-site, ministral-3-8b: the column is spelled
+// three ways across a 900-line file. Every run searched "Causal Order", found
+// one site, and searched the same phrase again with other arguments until the
+// stuck detector stopped it or the turns ran out. The leftover check at the end
+// of a run cannot help a run that never reaches the end, so the other
+// spellings are shown the first time the phrase is searched for. It is the
+// same relaxed search `froe locate` already relies on (RelaxSeparators), and
+// it only runs for a phrase, never for a deliberate regex.
+//
+// seen is the search's own output, so no line is listed twice.
+func otherSpellings(ctx context.Context, rg string, a grepArgs, abs string, seen []byte) string {
+	relaxed, ok := RelaxSeparators(Search{Pattern: a.Pattern, Literal: a.Literal})
+	if !ok {
+		return ""
+	}
+	argv := []string{"--line-number", "--no-heading", "--color", "never", "--ignore-case"}
+	if a.Glob != "" {
+		argv = append(argv, "--glob", a.Glob)
+	}
+	argv = append(argv, "--", relaxed.Pattern, abs)
+	out, err := exec.CommandContext(ctx, rg, argv...).Output()
+	if err != nil {
+		return ""
+	}
+
+	already := map[string]bool{}
+	for _, l := range strings.Split(string(seen), "\n") {
+		already[l] = true
+	}
+	var extra []string
+	for _, l := range strings.Split(strings.TrimRight(string(out), "\n"), "\n") {
+		if l == "" || already[l] || !EndsAtWord(l, relaxed) {
+			continue
+		}
+		extra = append(extra, l)
+	}
+	if len(extra) == 0 || len(extra) > maxOtherSpellings {
+		return ""
+	}
+	return fmt.Sprintf("(the same words spelled another way - check whether these are the same thing:)\n%s",
+		formatMatches([]byte(strings.Join(extra, "\n")), abs))
 }
 
 // literalRetry re-runs a failed regex search as a fixed-string search, so the

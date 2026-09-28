@@ -152,8 +152,9 @@ func diagnoseMismatch(content, old string) string {
 	// "read the file" only buys another read of a window it already has. Show
 	// the real text where its first line actually occurs instead.
 	if exact := locateSimilar(content, old); exact != "" {
-		return " - the text differs by more than whitespace. The file contains exactly this " +
-			"where your first line occurs (\u2192 is a tab, \u00b7 is a space):\n" + exact +
+		return " - the text differs by more than whitespace." + firstDivergence(content, old) +
+			"\nThe file contains exactly this where your first line occurs " +
+			"(\u2192 is a tab, \u00b7 is a space):\n" + exact +
 			"\nCopy it verbatim, converting \u2192 back to tab characters."
 	}
 	return " - read the file and copy the text exactly, including indentation."
@@ -199,6 +200,55 @@ func locateSimilar(content, old string) string {
 		return strings.TrimRight(b.String(), "\n")
 	}
 	return ""
+}
+
+// firstDivergence names the first line of old that is not what the file has
+// at that point, so the model is told what to fix rather than shown a block
+// to compare by eye.
+//
+// Measured 2026-09-28 on 07-multi-site: ministral-3-8b sent an old_string
+// whose first line was right and whose next four lines ("P_loss", "Q_win",
+// ...) it had invented. Shown the file's real text, it resent the same
+// invented lines four times, switching spaces for tabs: nothing told it
+// which line was wrong, and it believed indentation was the problem.
+func firstDivergence(content, old string) string {
+	want := strings.Split(strings.Trim(old, "\n"), "\n")
+	lines := strings.Split(content, "\n")
+	first := strings.TrimSpace(want[0])
+	for i, line := range lines {
+		if strings.TrimSpace(line) != first {
+			continue
+		}
+		for k := 1; k < len(want); k++ {
+			got := ""
+			if i+k < len(lines) {
+				got = lines[i+k]
+			}
+			if strings.TrimSpace(got) == strings.TrimSpace(want[k]) {
+				continue
+			}
+			msg := fmt.Sprintf("\nLine %d of your old_string is wrong. You wrote:\n    %s\nThe file has:\n    %s",
+				k+1, strings.TrimSpace(want[k]), strings.TrimSpace(got))
+			if !containsLine(lines, want[k]) {
+				msg += "\nThe line you wrote is not anywhere in the file."
+			}
+			return msg
+		}
+		return ""
+	}
+	return ""
+}
+
+// containsLine reports whether any line of the file equals line, ignoring
+// surrounding whitespace.
+func containsLine(lines []string, line string) bool {
+	line = strings.TrimSpace(line)
+	for _, l := range lines {
+		if strings.TrimSpace(l) == line {
+			return true
+		}
+	}
+	return false
 }
 
 // visibleWhitespace renders leading tabs and spaces as printable characters.
