@@ -118,14 +118,7 @@ func (h *rpcHandler) Run(ctx context.Context, p rpc.RunParams, emit func(rpc.Eve
 		return nil, errors.New("empty task")
 	}
 
-	// Fold the editor's selection into the task, so "here" means what the user
-	// has highlighted rather than whatever the model guesses.
-	if p.Selection != "" {
-		task = fmt.Sprintf("%s\n\nThe user has selected lines %d-%d of %s:\n\n```\n%s\n```",
-			task, p.StartLine, p.EndLine, p.File, p.Selection)
-	} else if p.File != "" {
-		task = fmt.Sprintf("%s\n\n(The user is editing %s.)", task, p.File)
-	}
+	task = withEditorContext(task, p)
 
 	if p.Resume && h.store != nil && len(h.history) == 0 {
 		if s, err := h.store.Latest(h.root); err == nil && s != nil {
@@ -226,4 +219,30 @@ func (a acceptEdits) Ask(req perms.Request) perms.Decision {
 		return a.inner.Ask(req)
 	}
 	return perms.Allow
+}
+
+// withEditorContext folds the editor's selection or current file into the
+// task, so "here" means what the user has highlighted rather than whatever the
+// model guesses.
+//
+// The selection comes first and the request last, and the wording says the
+// text is already present. Measured 2026-09-28 in Neovim, ministral-3-8b:
+// asked "can you see what I highlighted?" with the old "The user has selected
+// lines 5-5 of :" after the question - blank because the buffer was unsaved -
+// it answered "I cannot see or interpret selections".
+func withEditorContext(task string, p rpc.RunParams) string {
+	if p.Selection == "" {
+		if p.File != "" {
+			return fmt.Sprintf("%s\n\n(The user is editing %s.)", task, p.File)
+		}
+		return task
+	}
+	where := "an unsaved buffer (not a file on disk)"
+	if p.File != "" {
+		where = p.File
+	}
+	return fmt.Sprintf("The user highlighted this text in %s, lines %d-%d. "+
+		"It is included here in full - you can read it directly, no tool is needed:\n\n"+
+		"```\n%s\n```\n\nThe user's request about the highlighted text: %s",
+		where, p.StartLine, p.EndLine, p.Selection, task)
 }
