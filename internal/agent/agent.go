@@ -325,6 +325,11 @@ func (a *Agent) run(ctx context.Context, task string, images []provider.ImageCon
 	terms.fromTask(task)
 	leftoverNudged := false
 
+	// checklist is the task's numbered asks, quoted back once if a run that
+	// changed files finishes without accounting for each: see checklist.go.
+	checklist := checklistItems(task)
+	checklistNudged := false
+
 	// applyNudged keeps the "you only showed it" push to once per run.
 	// formatRetries counts turns re-asked because the backend could not parse
 	// the model's tool call, and formatHint carries the note for the re-ask.
@@ -527,6 +532,20 @@ func (a *Agent) run(ctx context.Context, task string, images []provider.ImageCon
 				}
 				continue
 			}
+		}
+
+		if len(calls) == 0 && len(checklist) > 0 && !checklistNudged && len(m.FilesChanged) > 0 &&
+			turn < maxTurns && !answerCoversAll(answer, len(checklist)) {
+			checklistNudged = true
+			nudge := checklistNudge(checklist)
+			done := provider.Message{Role: provider.RoleAssistant, Content: answer}
+			push := provider.Message{Role: provider.RoleUser, Content: nudge}
+			msgs = append(msgs, done, push)
+			a.transcript = append(a.transcript, done, push)
+			if !emit(Event{Kind: KindToolResult, Tool: "(checklist)", Result: nudge}) {
+				return
+			}
+			continue
 		}
 
 		if len(calls) == 0 && editedSinceCheck && !checkNudged && turn < maxTurns &&
