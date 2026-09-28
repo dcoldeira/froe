@@ -52,6 +52,8 @@ From Neovim, over JSON-RPC to the same binary:
 :Froe fix the null guard in this function
 ```
 
+Commands, keymaps and a short how-to: [`nvim/README.md`](nvim/README.md).
+
 ## Why it is not an autonomous agent
 
 Because it was measured, and the autonomous loop lost. A 27B model at an

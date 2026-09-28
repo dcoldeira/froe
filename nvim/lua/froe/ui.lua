@@ -15,10 +15,19 @@ local function ensure_buf()
   return state.buf
 end
 
+--- Whether the remembered window still shows the output. Being valid is not
+--- enough: a file explorer (snacks) opens files into whatever window it picks.
+--- When it picked this one, :FroeOpen saw a "valid" window and did nothing,
+--- :FroeClose would have closed the user's file and _follow moved its cursor.
+local function shown()
+  return state.win and vim.api.nvim_win_is_valid(state.win)
+    and state.buf and vim.api.nvim_win_get_buf(state.win) == state.buf
+end
+
 --- Open the output split, reusing it if already visible.
 function M.open()
   local buf = ensure_buf()
-  if state.win and vim.api.nvim_win_is_valid(state.win) then
+  if shown() then
     return state.win
   end
   local current = vim.api.nvim_get_current_win()
@@ -34,7 +43,7 @@ function M.open()
 end
 
 function M.close()
-  if state.win and vim.api.nvim_win_is_valid(state.win) then
+  if shown() then
     vim.api.nvim_win_close(state.win, true)
   end
   state.win = nil
@@ -93,7 +102,7 @@ end
 --- Keep the newest output visible, but only when the cursor is already at the
 --- bottom — scrolling away to read something must not be yanked back.
 function M._follow()
-  if not (state.win and vim.api.nvim_win_is_valid(state.win)) then return end
+  if not shown() then return end
   local buf = ensure_buf()
   local count = vim.api.nvim_buf_line_count(buf)
   local cur = vim.api.nvim_win_get_cursor(state.win)[1]

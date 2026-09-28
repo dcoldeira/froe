@@ -6,7 +6,7 @@ implementation, one session store and one set of tools.
 
 **The plugin holds no agent logic.** It is a transport and a renderer. If it
 grows past ~500 lines, something has leaked out of the binary
-(`docs/ARCHITECTURE.md` §8). Currently ~410.
+(`docs/ARCHITECTURE.md` §8). Currently ~550, so it is due a trim.
 
 ## Install
 
@@ -29,12 +29,36 @@ return {
       cmd = "froe",
       mode = "ask",          -- "ask" | "accept-edits" | "yolo"
       show_reasoning = false,
+      -- Optional: what :FroeLaunch runs to bring the model up. Machine-specific.
+      launch = { "sh", "-c", "lms unload --all && lms load mistralai/ministral-3-8b"
+        .. " --gpu max --context-length 8192 --parallel 1 -y" },
     })
   end,
 }
 ```
 
-For a local checkout, swap the spec for `dir = "~/development/froe"`.
+For a local checkout, swap the spec for `dir = "~/development/froe"`. After
+rebuilding the binary, run `:FroeRestart` so the plugin starts the new one.
+
+## Using it
+
+1. Open Neovim in the project: `cd your-project && nvim .`
+2. `<leader>dl` (`:FroeLaunch`) brings the model up, if you configured `launch`.
+3. `<leader>dd` puts `:Froe ` on the command line. Type the task and press
+   Enter, e.g. `:Froe where is the witness value computed?`
+4. The answer streams into an output split on the right. If you do not see it,
+   `<leader>do` (`:FroeOpen`) brings it back.
+
+**The task goes on the command line, not into a buffer.** froe is not a chat
+window you type into; the output split is read-only.
+
+**To ask about specific lines**, select them (`V` and a motion), press
+`<leader>dd`, and type the question. The selected text is sent with it, so this
+works on an unsaved buffer too. Without a selection, froe only sees files on
+disk: save (`:w`) before asking about a file you are editing.
+
+**One task at a time.** A second `:Froe` while one runs is refused; `<leader>ds`
+stops the current one.
 
 ## Commands
 
@@ -45,11 +69,14 @@ For a local checkout, swap the spec for `dir = "~/development/froe"`.
 | `:FroeStop` | cancel the running task |
 | `:FroeOpen` / `:FroeClose` | show or hide the output split |
 | `:FroeClear` | clear the output |
-| `:FroeRestart` | restart the backing process |
+| `:FroeLaunch` | bring the model runtime up (runs `launch` from your config) |
+| `:FroeModel [id]` | show the model, or switch to another registry id (restarts the backend) |
+| `:FroeRestart` | restart the backing process, e.g. after rebuilding `froe` |
 
 Default keymaps (disable with `keys = false`):
 
 - `<leader>dd` — task (normal), task on selection (visual)
+- `<leader>dl` — launch the model runtime
 - `<leader>ds` — stop
 - `<leader>do` — open output
 
