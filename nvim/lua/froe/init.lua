@@ -217,6 +217,17 @@ function M.restart()
   notify("restarted")
 end
 
+--- Run the task on the system clipboard, lines joined. Pasting into the
+--- command line keeps only the first line of a multi-line paste: measured
+--- 2026-09-28, a prompt copied from a wrapped terminal reached froe cut off at
+--- "(2)", and the model was blamed for skipping items it never received.
+function M.run_clipboard()
+  local text = vim.fn.getreg("+")
+  local task = vim.trim((text:gsub("%s+", " ")))
+  if task == "" then return notify("clipboard is empty") end
+  M.run(task)
+end
+
 function M.setup(opts)
   M.config = vim.tbl_deep_extend("force", M.config, opts or {})
 
@@ -232,6 +243,9 @@ function M.setup(opts)
     if task == "" then return end
     M.run(task, sel)
   end, { nargs = "*", range = true, desc = "Run a froe task on the selection" })
+
+  vim.api.nvim_create_user_command("FroePaste", M.run_clipboard,
+    { desc = "Run the task on the clipboard (safe for long or wrapped prompts)" })
 
   vim.api.nvim_create_user_command("FroeModel", function(a)
     if a.args == "" then
@@ -253,6 +267,7 @@ function M.setup(opts)
   if M.config.keys then
     vim.keymap.set("n", "<leader>dd", ":Froe ", { desc = "froe: task" })
     vim.keymap.set("v", "<leader>dd", ":FroeVisual ", { desc = "froe: task on selection" })
+    vim.keymap.set("n", "<leader>dp", M.run_clipboard, { desc = "froe: task from clipboard" })
     vim.keymap.set("n", "<leader>dl", M.launch, { desc = "froe: launch model runtime" })
     vim.keymap.set("n", "<leader>ds", M.stop, { desc = "froe: stop" })
     vim.keymap.set("n", "<leader>do", ui.open, { desc = "froe: open output" })
