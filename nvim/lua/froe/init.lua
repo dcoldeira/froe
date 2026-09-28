@@ -267,7 +267,7 @@ function M.setup(opts)
   if M.config.keys then
     vim.keymap.set("n", "<leader>dd", ":Froe ", { desc = "froe: task" })
     vim.keymap.set("v", "<leader>dd", ":FroeVisual ", { desc = "froe: task on selection" })
-    vim.keymap.set("n", "<leader>dp", M.run_clipboard, { desc = "froe: task from clipboard" })
+    vim.keymap.set("n", "<leader>dc", M.run_clipboard, { desc = "froe: task from clipboard" })
     vim.keymap.set("n", "<leader>dl", M.launch, { desc = "froe: launch model runtime" })
     vim.keymap.set("n", "<leader>ds", M.stop, { desc = "froe: stop" })
     vim.keymap.set("n", "<leader>do", ui.open, { desc = "froe: open output" })

@@ -57,9 +57,9 @@ window you type into; the output split is read-only.
 works on an unsaved buffer too. Without a selection, froe only sees files on
 disk: save (`:w`) before asking about a file you are editing.
 
-**Long prompts: copy, then `<leader>dp`.** Neovim keeps only the first line of
+**Long prompts: copy, then `<leader>dc`.** Neovim keeps only the first line of
 a multi-line paste into the command line, so a prompt that wrapped when you
-copied it reaches froe cut short, silently. `:FroePaste` reads the clipboard
+copied it reaches froe cut short, silently. `:FroePaste` (`<leader>dc`) reads the clipboard
 instead and joins the lines.
 
 **One task at a time.** A second `:Froe` while one runs is refused; `<leader>ds`
@@ -82,7 +82,7 @@ stops the current one.
 Default keymaps (disable with `keys = false`):
 
 - `<leader>dd` — task (normal), task on selection (visual)
-- `<leader>dp` — task from the clipboard
+- `<leader>dc` — task from the clipboard (not `dp`: LazyVim/snacks use it for the profiler)
 - `<leader>dl` — launch the model runtime
 - `<leader>ds` — stop
 - `<leader>do` — open output
