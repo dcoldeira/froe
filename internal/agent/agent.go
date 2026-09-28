@@ -369,18 +369,29 @@ func (a *Agent) run(ctx context.Context, task string, images []provider.ImageCon
 			return
 		}
 
-		a.fitContext(msgs, protect)
-
 		// Appended to a copy, never to msgs itself: it must stay at the tail
 		// every turn (recency matters for a small model's attention) and must
 		// never accumulate as permanent history the way a nudge message does.
-		reqMsgs := msgs
+		var notes []string
 		if len(explored) > 0 {
-			reqMsgs = withNote(reqMsgs, "Already explored, do not repeat unless you need a different "+
+			notes = append(notes, "Already explored, do not repeat unless you need a different "+
 				"part of the same file/output:\n- "+strings.Join(explored, "\n- "))
 		}
 		if formatHint != "" {
-			reqMsgs = withNote(reqMsgs, formatHint)
+			notes = append(notes, formatHint)
+		}
+
+		// Everything else the request carries counts against the same window:
+		// the notes about to be added, and the tool definitions.
+		overhead := estimateTokens(strings.Join(notes, "\n"))
+		if !useReact && !useGrammar {
+			overhead += toolDefTokens(a.Tools)
+		}
+		a.fitContext(msgs, protect, overhead)
+
+		reqMsgs := msgs
+		for _, n := range notes {
+			reqMsgs = withNote(reqMsgs, n)
 		}
 		req := provider.RequestFor(a.Model, reqMsgs)
 		req.MaxTokens = 2048
@@ -487,7 +498,7 @@ func (a *Agent) run(ctx context.Context, task string, images []provider.ImageCon
 		}
 
 		if len(calls) == 0 && a.ApplyEdits && !applyNudged && len(m.FilesChanged) == 0 &&
-			turn < maxTurns && showsCode(answer) && a.canRun("edit_file") {
+			turn < maxTurns && showsCode(answer, task) && a.canRun("edit_file") {
 			// The answer holds the change as a code block and no file was
 			// touched: it told the user what to do instead of doing it.
 			applyNudged = true
@@ -761,8 +772,50 @@ const formatRetryHint = "Your last reply could not be read: the tool call in it 
 const applyNudge = "You showed the change but did not make it - no file has been modified. " +
 	"Apply it now with edit_file (or write_file for a new file), then check it as the task asks."
 
-// showsCode reports whether an answer contains a fenced code block.
-func showsCode(answer string) bool { return strings.Count(answer, "```") >= 2 }
+// showsCode reports whether an answer contains a fenced code block that is
+// not a quote of the task.
+//
+// A block the task already holds is the model quoting, not proposing a
+// change. Measured 2026-09-28 in Neovim, ministral-3-8b: asked "can you see
+// what I highlighted?", it quoted the selection back in a block, was sent the
+// apply push three runs of three, and ended by apologising that it could not
+// edit an unsaved buffer - an edit nobody had asked for.
+func showsCode(answer, task string) bool {
+	parts := strings.Split(answer, "```")
+	for i := 1; i+1 < len(parts); i += 2 {
+		body := parts[i]
+		// Drop the info string on the opening fence ("python\n...").
+		if nl := strings.IndexByte(body, '\n'); nl >= 0 {
+			body = body[nl+1:]
+		}
+		body = strings.TrimSpace(body)
+		if body != "" && !quotesLines(task, body) {
+			return true
+		}
+	}
+	return false
+}
+
+// quotesLines reports whether block's lines appear, whole and in order, as
+// consecutive lines of text. Whole lines, so "bye" in a block is not a quote
+// of the task "change hello to bye".
+func quotesLines(text, block string) bool {
+	tl := strings.Split(text, "\n")
+	bl := strings.Split(block, "\n")
+	for i := 0; i+len(bl) <= len(tl); i++ {
+		match := true
+		for k, b := range bl {
+			if strings.TrimSpace(tl[i+k]) != strings.TrimSpace(b) {
+				match = false
+				break
+			}
+		}
+		if match {
+			return true
+		}
+	}
+	return false
+}
 
 // checkWords are what a task says when it expects its result to be checked:
 // "run the tests", "must still build", "import cleanly". The verify push is
@@ -859,12 +912,16 @@ func (a *Agent) finalAnswer(ctx context.Context, msgs []provider.Message, m *Met
 		return
 	}
 	msgs = trimDanglingToolCalls(msgs)
-	msgs = append(msgs, provider.Message{
-		Role: provider.RoleUser,
-		Content: "You are out of tool calls. Do not ask for any more. " +
-			"Answer now, in the required format, using only what you have already found. " +
-			"If something is still unknown, say which part is unknown rather than guessing.",
-	})
+	// withNote, not a user message: this usually follows a tool result, and
+	// Mistral's template refuses a user turn there. Measured 2026-09-28 on
+	// 07-multi-site: a run that had already fixed the file hit its turn limit
+	// and lost the final answer to HTTP 500.
+	const outOfTurns = "You are out of tool calls. Do not ask for any more. " +
+		"Answer now, in the required format, using only what you have already found. " +
+		"If something is still unknown, say which part is unknown rather than guessing."
+	msgs = append([]provider.Message(nil), msgs...)
+	a.fitContext(msgs, nil, estimateTokens(outOfTurns))
+	msgs = withNote(msgs, outOfTurns)
 
 	req := provider.RequestFor(a.Model, msgs)
 	req.MaxTokens = 1024
@@ -1002,19 +1059,25 @@ func (a *Agent) runTool(ctx context.Context, call provider.ToolCall, emit func(E
 // the system message and the run's own task message. Losing either is what
 // broke the LM Studio template in the first place (see contextReserveShare),
 // so no budget overage is worth risking them, even a small one.
-func (a *Agent) fitContext(msgs []provider.Message, protect map[int]bool) {
+//
+// overhead is what else the request carries: tool definitions and froe's
+// notes. Measured 2026-09-28, ministral-3-8b on LM Studio at 8192: the
+// messages' text fitted the budget, but ~1.8k tokens of tool definitions and
+// the tool calls' own arguments (whole old_string blocks) did not count, the
+// real prompt overflowed, LM Studio cut the middle of the conversation to
+// fit, and the cut broke Mistral's role order - HTTP 500 on 2 of 7 runs.
+func (a *Agent) fitContext(msgs []provider.Message, protect map[int]bool, overhead int) {
 	ctxMax := a.Model.CtxMax
 	if ctxMax <= 0 {
 		ctxMax = 8192
 	}
-	budget := ctxMax - ctxMax/contextReserveShare
-	if budget <= 0 {
-		return
-	}
+	// Overhead can leave nothing for the conversation. Then every result
+	// that may be dropped is dropped: sending it anyway is what overflows.
+	budget := max(ctxMax-ctxMax/contextReserveShare-overhead, 0)
 
 	total := 0
 	for _, m := range msgs {
-		total += estimateTokens(m.Content)
+		total += messageTokens(m)
 	}
 
 	for total > budget {
@@ -1048,6 +1111,27 @@ func (a *Agent) fitContext(msgs []provider.Message, protect map[int]bool) {
 		total -= estimateTokens(msgs[shrink].Content) - estimateTokens(droppedToolResult)
 		msgs[shrink].Content = droppedToolResult
 	}
+}
+
+// messageTokens estimates a message's text plus its tool calls.
+func messageTokens(m provider.Message) int {
+	n := estimateTokens(m.Content)
+	for _, c := range m.ToolCalls {
+		n += estimateTokens(c.Name) + estimateTokens(c.Arguments)
+	}
+	return n
+}
+
+// toolDefTokens estimates what the tool definitions add to every request.
+func toolDefTokens(r *tools.Registry) int {
+	if r == nil {
+		return 0
+	}
+	b, err := json.Marshal(r.Defs())
+	if err != nil {
+		return 0
+	}
+	return estimateTokens(string(b))
 }
 
 // exploredEntry formats a tool call for the "already explored" reminder.

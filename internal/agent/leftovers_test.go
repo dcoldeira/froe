@@ -157,7 +157,9 @@ func TestSearchesForNavigationAreNotChangeTerms(t *testing.T) {
 func TestEvictedResultIsServedAgainNotCountedAsALoop(t *testing.T) {
 	p := &scripted{}
 	a := newTestAgent(t, p)
-	a.Model.CtxMax = 2048 // three large reads cannot all stay in the window
+	// Three large reads cannot all stay in the window. 4096, not smaller: the
+	// tool definitions alone are ~1.7k tokens of every request.
+	a.Model.CtxMax = 4096
 	var calls []reply
 	for _, f := range []string{"a", "b", "c"} {
 		body := strings.Repeat(f+" line of a large file\n", 400)

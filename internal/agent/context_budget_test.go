@@ -24,7 +24,7 @@ func TestFitContextDropsTheBiggestResultFirst(t *testing.T) {
 		{Role: provider.RoleTool, Content: tokens(700)},
 		{Role: provider.RoleTool, Content: tokens(300)},
 	}
-	budgetAgent(1024).fitContext(msgs, map[int]bool{0: true, 1: true})
+	budgetAgent(1024).fitContext(msgs, map[int]bool{0: true, 1: true}, 0)
 	if msgs[3].Content != droppedToolResult {
 		t.Error("the biggest result survived")
 	}
@@ -44,7 +44,7 @@ func TestFitContextNeverTouchesProtectedMessages(t *testing.T) {
 		{Role: provider.RoleUser, Content: tokens(2000)},
 		{Role: provider.RoleTool, Content: tokens(10)},
 	}
-	budgetAgent(1024).fitContext(msgs, map[int]bool{0: true, 1: true})
+	budgetAgent(1024).fitContext(msgs, map[int]bool{0: true, 1: true}, 0)
 	if msgs[0].Content != tokens(2000) || msgs[1].Content != tokens(2000) {
 		t.Fatal("a protected message was shrunk")
 	}
@@ -60,7 +60,7 @@ func TestFitContextOnlyDropsToolResults(t *testing.T) {
 		{Role: provider.RoleAssistant, Content: tokens(900)},
 		{Role: provider.RoleTool, Content: tokens(100)},
 	}
-	budgetAgent(1024).fitContext(msgs, map[int]bool{0: true})
+	budgetAgent(1024).fitContext(msgs, map[int]bool{0: true}, 0)
 	if msgs[1].Content != tokens(900) {
 		t.Fatal("an assistant turn was dropped")
 	}
@@ -71,7 +71,7 @@ func TestFitContextLeavesAFittingConversationAlone(t *testing.T) {
 		{Role: provider.RoleUser, Content: "task"},
 		{Role: provider.RoleTool, Content: tokens(100)},
 	}
-	budgetAgent(8192).fitContext(msgs, nil)
+	budgetAgent(8192).fitContext(msgs, nil, 0)
 	if msgs[1].Content == droppedToolResult {
 		t.Fatal("dropped a result with room to spare")
 	}
