@@ -102,6 +102,37 @@ func LoadInstructions(root, dir string) (*Instructions, error) {
 	return out, nil
 }
 
+// readmeFiles are the README spellings LoadReadme accepts, most common first.
+var readmeFiles = []string{"README.md", "README", "README.rst", "README.txt"}
+
+// LoadReadme returns the project README as fallback instructions, or nil.
+//
+// Only a fallback: a project with no FROE.md/CLAUDE.md otherwise gives the
+// model nothing but a symbol map. Asked "what is this project about?" in such
+// a repo, ministral-3-8b made no tool calls and expanded QRL as "Quantum
+// Reference Library", then, when corrected, as "Quantum Resistant Ledger". The
+// README says what the project is in its first paragraph.
+func LoadReadme(root string) *Instructions {
+	for _, name := range readmeFiles {
+		data, err := os.ReadFile(filepath.Join(root, name))
+		if err != nil {
+			continue
+		}
+		text := strings.TrimSpace(string(data))
+		if len(text) > maxInstructionBytes {
+			text = text[:maxInstructionBytes]
+		}
+		if text == "" {
+			return nil
+		}
+		return &Instructions{
+			Sources: []string{name},
+			Text:    fmt.Sprintf("--- %s ---\n%s", name, text),
+		}
+	}
+	return nil
+}
+
 // Fit truncates instructions to a token allowance, keeping whole lines and
 // saying plainly that it happened.
 //

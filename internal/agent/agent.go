@@ -89,6 +89,10 @@ func noMatchKey(tool string) string { return tool + "\x00\x00no-match" }
 // nonexistent path across a dozen turns and never stopped.
 const maxFruitlessSearches = 5
 
+// contextBoundary ends the system prompt whenever project context was added.
+const contextBoundary = "End of project context. Your task is the user's message and nothing else: " +
+	"if it is a greeting or a question, just answer it, and do not start work the context mentions."
+
 // contextReserveShare is the fraction of the context window fitContext keeps
 // free for the reply and template overhead, on top of whatever clampResult
 // already trimmed off each individual result.
@@ -247,7 +251,10 @@ func (a *Agent) run(ctx context.Context, task string, images []provider.ImageCon
 
 	system := a.System
 	if a.Context != "" {
-		system += "\n\n" + a.Context
+		// Close with the task boundary. The context can be thousands of tokens
+		// of someone else's notes, and a small model weights what it read last:
+		// without this, a greeting got answered with a to-do item from CLAUDE.md.
+		system += "\n\n" + a.Context + "\n\n" + contextBoundary
 	}
 	switch {
 	case useReact:

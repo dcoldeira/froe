@@ -76,3 +76,34 @@ func TestBuildContextCarriesInstructionsAndMap(t *testing.T) {
 		t.Errorf("map built for a 1024 window:\n%s", small)
 	}
 }
+
+// Instructions are labelled as background, so a to-do list in CLAUDE.md is not
+// read as the task.
+func TestBuildContextFramesInstructionsAsBackground(t *testing.T) {
+	root := t.TempDir()
+	os.WriteFile(filepath.Join(root, "CLAUDE.md"), []byte("Next: see REVISION.md."), 0o644)
+
+	out := buildContextFor(context.Background(), root, "Hi", 8192, style{}, true)
+	if !strings.HasPrefix(out, instructionsHeader) {
+		t.Errorf("instructions not framed as background:\n%s", out)
+	}
+}
+
+// With no instruction file, the README stands in, so the model is told what
+// the project is instead of guessing from symbol names.
+func TestBuildContextFallsBackToReadme(t *testing.T) {
+	root := t.TempDir()
+	os.WriteFile(filepath.Join(root, "README.md"), []byte("# QRL\n\nQuantum Relational Language."), 0o644)
+	os.WriteFile(filepath.Join(root, "go.mod"), []byte("module x\n"), 0o644)
+
+	out := buildContextFor(context.Background(), root, "what is this project about?", 8192, style{}, true)
+	if !strings.Contains(out, "Quantum Relational Language") {
+		t.Errorf("README missing from context:\n%s", out)
+	}
+
+	// An instruction file wins: the README is not loaded as well.
+	os.WriteFile(filepath.Join(root, "CLAUDE.md"), []byte("Use tabs."), 0o644)
+	if out := buildContextFor(context.Background(), root, "x", 8192, style{}, true); strings.Contains(out, "Quantum Relational Language") {
+		t.Errorf("README loaded alongside CLAUDE.md:\n%s", out)
+	}
+}
