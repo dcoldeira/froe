@@ -60,6 +60,9 @@ type InitializeResult struct {
 	Tools    []string `json:"tools"`
 	Root     string   `json:"root"`
 	Session  string   `json:"session"`
+	// Routing is true when no model was pinned: each task then picks its own
+	// model (quick or careful) and says which in a "route" event.
+	Routing bool `json:"routing"`
 }
 
 // RunParams is one task.
@@ -94,7 +97,8 @@ type CancelParams struct{}
 
 // EventParams is a progress notification, sent as "froe/event".
 type EventParams struct {
-	// Kind is one of: turn, text, reasoning, tool, tool_result, denied, error.
+	// Kind is one of: route, turn, text, reasoning, tool, tool_result, denied,
+	// error.
 	Kind   string `json:"kind"`
 	Text   string `json:"text,omitempty"`
 	Tool   string `json:"tool,omitempty"`

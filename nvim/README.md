@@ -43,7 +43,11 @@ rebuilding the binary, run `:FroeRestart` so the plugin starts the new one.
 ## Using it
 
 1. Open Neovim in the project: `cd your-project && nvim .`
-2. `<leader>dl` (`:FroeLaunch`) brings the model up, if you configured `launch`.
+2. Nothing to load by hand: with no `model` set, froe routes each task to a
+   quick or a careful model and loads it itself (LM Studio). The output split
+   shows `⇢ careful → bonsai-27b-lmstudio (it asks for a count ...)`. To use one
+   model for everything, `:FroeModel <id>`; `:FroeModel auto` goes back.
+   `<leader>dl` (`:FroeLaunch`) still runs your `launch` command, if set.
 3. `<leader>dd` puts `:Froe ` on the command line. Type the task and press
    Enter, e.g. `:Froe where is the witness value computed?`
 4. The answer streams into an output split on the right. If you do not see it,
@@ -76,7 +80,7 @@ stops the current one.
 | `:FroeOpen` / `:FroeClose` | show or hide the output split |
 | `:FroeClear` | clear the output |
 | `:FroeLaunch` | bring the model runtime up (runs `launch` from your config) |
-| `:FroeModel [id]` | show the model, or switch to another registry id (restarts the backend) |
+| `:FroeModel [id]` | show the model, pin another registry id, or `auto` to route per task (restarts the backend) |
 | `:FroeRestart` | restart the backing process, e.g. after rebuilding `froe` |
 
 Default keymaps (disable with `keys = false`):

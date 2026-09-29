@@ -60,6 +60,11 @@ type Runtime struct {
 	APIKeyEnv string   `toml:"api_key_env"` // hosted backends: env var holding the key
 	Managed   bool     `toml:"managed"`     // true if something else owns the process
 	Notes     string   `toml:"notes"`
+	// Load is the command that makes this runtime serve a model, with
+	// "{model}" replaced by the model's ServeID. Per-task routing runs it when
+	// the routed model is not the one loaded. Empty means froe cannot switch
+	// models on this runtime and routing stays on the loaded one.
+	Load []string `toml:"load"`
 }
 
 // Hosted reports whether this runtime executes somewhere else. The signal is

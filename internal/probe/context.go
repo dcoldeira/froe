@@ -123,3 +123,29 @@ func ModelsPresent(ctx context.Context, rt registry.Runtime) map[string]bool {
 	}
 	return out
 }
+
+// Loaded reports whether a runtime has a model loaded right now, as opposed to
+// merely downloaded. known is false when the runtime will not say; only LM
+// Studio's native endpoint reports it, and callers must then leave the runtime
+// alone rather than reload a model that may already be serving.
+func Loaded(ctx context.Context, rt registry.Runtime, serveID string) (loaded, known bool) {
+	ctx, cancel := context.WithTimeout(ctx, DefaultTimeout)
+	defer cancel()
+
+	var body struct {
+		Data []struct {
+			ID    string `json:"id"`
+			State string `json:"state"`
+		} `json:"data"`
+	}
+	base := strings.TrimSuffix(strings.TrimRight(rt.BaseURL, "/"), "/v1")
+	if !getJSON(ctx, base+"/api/v0/models", &body) {
+		return false, false
+	}
+	for _, m := range body.Data {
+		if m.ID == serveID {
+			return m.State == "loaded", true
+		}
+	}
+	return false, true
+}

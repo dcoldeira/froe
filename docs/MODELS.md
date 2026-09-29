@@ -132,6 +132,14 @@ Maps task kind → role → model, per machine:
 Always overridable: `froe --model <id>`, or pin per-project in `FROE.md`.
 Automatic routing that cannot be overridden is worse than no routing.
 
+**What exists (2026-09-29):** the editor (`froe rpc`) routes each task when no
+model is pinned. `internal/resolve/route.go` sorts the task into `quick` or
+`careful` by word patterns and gives the reason; the `quick` and `careful`
+roles in `models.toml` name the models (`ministral-3-8b-lmstudio` and
+`bonsai-27b-lmstudio` on the reference laptop), falling back to `default`. When
+the routed model is not loaded, froe runs the runtime's `load` command from
+`runtimes.toml`. Open work is in `docs/ROADMAP.md`.
+
 ## 5. Runtime backends — the decision
 
 Target the **OpenAI-compatible `/v1/chat/completions` shape** as the primary

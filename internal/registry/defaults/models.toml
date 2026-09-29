@@ -47,7 +47,9 @@ ctx_max       = 262144
 tool_strategy = "native"
 vision        = true          # needs mmproj-Bonsai-27B-BF16.gguf (+0.87 GB)
 thinking_budget_tokens = 64   # MEASURED: 16 is ~2x faster but drops the eval from 5/5 to 4/5 - it stops recovering from tool errors
-roles         = ["main", "heavy"]
+# careful: MEASURED 2026-09-29, a 3-part read-only lookup on QRL - 3/3 right in
+# 38.6s, reading each file; ministral-3-8b-lmstudio took 4.7s and guessed.
+roles         = ["main", "heavy", "careful"]
 notes         = "Pull: lms get prism-ml/bonsai-27b -y --gguf. MEASURED on RTX A500 4GB: loads in 5s, 3838/4096 MiB VRAM, ~4.5 tok/s generation. Reasons by default and CANNOT be disabled via /no_think, enable_thinking or reasoning_effort - only thinking_budget_tokens works."
 
 # Same GGUF as bonsai-27b-lmstudio, served by UPSTREAM llama.cpp instead of the
@@ -225,7 +227,7 @@ peak_mb       = 5775          # MEASURED 2026-09-25: 5.64 GiB loaded @ 8K ctx
 peak_ctx      = 8192
 ctx_max       = 262144
 tool_strategy = "native"
-roles         = ["default", "main"]
+roles         = ["default", "main", "quick"]
 
 [[model]]
 id            = "ministral-3-3b-lmstudio"

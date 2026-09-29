@@ -11,8 +11,9 @@ local M = {}
 
 M.config = {
   cmd = "froe",
-  -- Empty picks by role. :FroeModel trades capability for speed — a 1.5B is
-  -- ~9x faster than the 27B and enough for many questions.
+  -- Empty routes each task: froe picks a quick or a careful model per task
+  -- and loads it. A model id pins that model for every task. :FroeModel
+  -- switches between the two ("" is spelled :FroeModel auto).
   model = "",
   -- "ask" prompts for every mutating call, "accept-edits" auto-approves edits
   -- but still asks before shell commands, "yolo" approves everything the hard
@@ -53,7 +54,9 @@ local function approve(params)
 end
 
 local function on_event(p)
-  if p.kind == "turn" then
+  if p.kind == "route" then
+    ui.line("  ⇢ " .. (p.text or ""))
+  elseif p.kind == "turn" then
     ui.spinner_stop()
     ui.line("")
     ui.line("── turn " .. (p.turn or "?"))
@@ -96,8 +99,13 @@ local function ensure_client(cb)
       notify("initialize failed: " .. (rerr.message or "?"), vim.log.levels.ERROR)
       return cb(false)
     end
-    ui.line(("→ %s via %s (%s tools, %s strategy)"):format(
-      result.model, result.runtime, #result.tools, result.strategy))
+    if result.routing then
+      ui.line(("→ routing per task, starting on %s via %s (%s tools)"):format(
+        result.model, result.runtime, #result.tools))
+    else
+      ui.line(("→ %s via %s (%s tools, %s strategy)"):format(
+        result.model, result.runtime, #result.tools, result.strategy))
+    end
     cb(true)
   end)
 end
@@ -252,7 +260,7 @@ function M.setup(opts)
       notify("model: " .. (M.config.model ~= "" and M.config.model or "auto"))
       return
     end
-    M.config.model = a.args
+    M.config.model = a.args == "auto" and "" or a.args
     M.restart()
     notify("model set to " .. a.args)
   end, { nargs = "?", desc = "Show or change the model (restarts the backend)" })

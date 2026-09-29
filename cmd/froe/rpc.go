@@ -26,7 +26,11 @@ import (
 // renderer — the moment it starts making decisions, the two front ends have
 // begun to diverge (docs/ARCHITECTURE.md §8).
 type rpcHandler struct {
-	root     string
+	root string
+	cat  *registry.Catalogue
+	// routing is on when initialize pinned no model: each Run then routes its
+	// task to a quick or careful model (resolve.Route).
+	routing  bool
 	choice   resolve.Choice
 	provider provider.Provider
 	store    *session.Store
@@ -84,6 +88,7 @@ func (h *rpcHandler) Initialize(ctx context.Context, p rpc.InitializeParams) (*r
 		return nil, err
 	}
 	h.choice, h.provider = choice, prov
+	h.cat, h.routing = cat, p.Model == ""
 
 	h.store = openStore(true)
 	sessionID := ""
@@ -106,6 +111,7 @@ func (h *rpcHandler) Initialize(ctx context.Context, p rpc.InitializeParams) (*r
 		Tools:    h.tools.Names(),
 		Root:     h.root,
 		Session:  sessionID,
+		Routing:  h.routing,
 	}, nil
 }
 
@@ -116,6 +122,10 @@ func (h *rpcHandler) Run(ctx context.Context, p rpc.RunParams, emit func(rpc.Eve
 	task := strings.TrimSpace(p.Task)
 	if task == "" {
 		return nil, errors.New("empty task")
+	}
+
+	if err := h.route(ctx, task, p.Selection != "", emit); err != nil {
+		return nil, err
 	}
 
 	task = withEditorContext(task, p)
@@ -203,6 +213,40 @@ func (h *rpcHandler) Run(ctx context.Context, p rpc.RunParams, emit func(rpc.Eve
 		res.ElapsedMS = metrics.Elapsed.Milliseconds()
 	}
 	return res, nil
+}
+
+// route settles the model for one task: the routed one when routing is on,
+// the pinned one otherwise, loaded either way. A model that fails to load ends
+// the run with the load error rather than quietly using another - a surprise
+// model is worse than a clear failure (resolve.Pick).
+func (h *rpcHandler) route(ctx context.Context, task string, hasSelection bool, emit func(rpc.EventParams)) error {
+	choice := h.choice
+	if h.routing {
+		class, why := resolve.Route(task, hasSelection)
+		c, err := resolve.PickWithPreference(ctx, h.cat, "", resolve.RoutePreference[class])
+		if err != nil {
+			return err
+		}
+		choice = c
+		emit(rpc.EventParams{Kind: "route", Text: fmt.Sprintf("%s → %s (%s)", class, c.Model.ID, why)})
+	}
+
+	loaded, err := resolve.EnsureLoaded(ctx, choice)
+	if err != nil {
+		return err
+	}
+	if loaded {
+		emit(rpc.EventParams{Kind: "route", Text: "loaded " + choice.Model.ID})
+	}
+	if choice.Model.ID == h.choice.Model.ID {
+		return nil
+	}
+	prov, err := provider.New(choice.Runtime, choice.Model)
+	if err != nil {
+		return err
+	}
+	h.choice, h.provider = choice, prov
+	return nil
 }
 
 // alwaysAllow approves everything the hard denylist has not already refused.

@@ -33,6 +33,10 @@ base_url = "http://localhost:1234/v1"
 grammar  = "unverified"
 managed  = true
 notes    = "Headless via `lms daemon up`. Ships kernels ahead of upstream - the zero-effort path to Bonsai. Closed binary: local inference but not auditable."
+# Unload first: an 8 GB card holds one of these models, and two loaded models
+# confuse the context probe. Parallel 1 keeps the whole 8192 window - JIT
+# auto-load defaults to 4 parallel slots, which quarters it.
+load     = ["sh", "-c", "lms unload --all && lms load {model} --gpu max --context-length 8192 --parallel 1 --ttl 1800 -y"]
 
 [runtime.mistral]
 kind     = "openai-compat"

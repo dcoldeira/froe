@@ -4,6 +4,35 @@ Open work, newest findings first. Every item comes from something observed or
 measured, and says where. The phase-by-phase history that led here is being
 rewritten against fresh measurements and will be added back when it is.
 
+## Per-task model routing
+
+**Started 2026-09-29, Neovim only so far.** With no model pinned, each task in
+the editor is routed to a `quick` or `careful` model (`internal/resolve/route.go`),
+and froe loads that model itself via the runtime's `load` command
+(`runtimes.toml`). The output split says which class, which model, and why.
+Pinning a model (`:FroeModel <id>`) turns routing off.
+
+Why: on 2026-09-29, one read-only lookup (count the `.py` files under
+`src/qrl/lang`, name the type-check function, name the CLI file) went
+ministral-3-8b-lmstudio 4.7s with a wrong count and unchecked names, against
+bonsai-27b-lmstudio 38.6s and 3/3. Neither model is right for every task, and
+choosing by hand before every task is friction.
+
+Live check the same day, through `froe rpc`: "explain ... a process matrix"
+routed quick to ministral (6.9s including the load); a counting task routed
+careful and loaded Bonsai (19.3s). Bonsai miscounted (8, not 9) on that run -
+routing picks the better model, it does not make it right.
+
+To do:
+- The rule is word patterns, checked only against the cases in
+  `route_test.go`. Measure it: route every task in `eval/` and compare the
+  routed model's pass rate and time with each model pinned.
+- `froe ask` and `froe do` still use the single default. Route them too, or
+  say why not.
+- Each switch costs a load (about 2-5s here). A run of tasks that alternate
+  classes pays it every time; consider staying on the loaded model when the
+  route is marginal.
+
 ## Native Windows support
 
 `froe` cross-compiles for Windows (`GOOS=windows go build ./cmd/froe`, checked
