@@ -55,7 +55,11 @@ end
 
 local function on_event(p)
   if p.kind == "route" then
+    -- Stop the spinner first: it rewrites the last line on every tick, and
+    -- overwrote this one on 2026-09-29 (the route never showed in the split).
+    ui.spinner_stop()
     ui.line("  ⇢ " .. (p.text or ""))
+    ui.spinner_start()
   elseif p.kind == "turn" then
     ui.spinner_stop()
     ui.line("")
