@@ -228,3 +228,16 @@ func IsNoMatch(result string) bool {
 	return strings.HasPrefix(result, noFilesMatchPrefix) ||
 		strings.HasPrefix(result, noMatchesForPrefix)
 }
+
+// countLine states how many results a listing holds, e.g. "9 files".
+//
+// Models count lines badly and copy numbers well. Measured 2026-10-01: asked
+// how many .py files src/qrl/lang holds, mistral-large ran a glob that listed
+// all nine and answered 8. So listings say the total themselves, first, where
+// the model reads it before the list and the editor shows it on its one line.
+func countLine(n int, one, many string) string {
+	if n == 1 {
+		return "1 " + one
+	}
+	return fmt.Sprintf("%d %s", n, many)
+}

@@ -242,7 +242,22 @@ func literalRetry(ctx context.Context, rg string, a grepArgs, abs string) ([]byt
 // formatMatches trims absolute paths and caps the listing.
 func formatMatches(out []byte, abs string) string {
 	lines := strings.Split(strings.TrimRight(string(out), "\n"), "\n")
+	files := map[string]bool{}
+	for _, line := range lines {
+		// A search of one file prints "12:text", with no path to collect.
+		if p, _, ok := strings.Cut(line, ":"); ok && strings.Trim(p, "0123456789") != "" {
+			files[p] = true
+		}
+	}
+	if len(files) == 0 {
+		files[abs] = true
+	}
 	var b strings.Builder
+	// The count comes first and from the tool, never the model: rg stops at
+	// --max-count per file, so it is a floor when any file hit that limit.
+	fmt.Fprintf(&b, "(%s in %s)\n",
+		countLine(len(lines), "matching line", "matching lines"),
+		countLine(len(files), "file", "files"))
 	for i, line := range lines {
 		if i >= maxGrepLines {
 			fmt.Fprintf(&b, "(%d more matches - narrow the pattern)\n", len(lines)-maxGrepLines)

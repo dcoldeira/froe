@@ -190,6 +190,10 @@ type Agent struct {
 	// ends having only shown the change in its answer is sent back once to
 	// make it. Chat leaves it off: there a code block is often the answer.
 	ApplyEdits bool
+	// RequireEvidence marks a task whose answer must come from looking, not
+	// recall - a count, a complete list, a name to confirm. A run that answers
+	// it without one tool call is sent back once to check.
+	RequireEvidence bool
 }
 
 // Transcript returns the messages this run produced, excluding the system
@@ -334,6 +338,8 @@ func (a *Agent) run(ctx context.Context, task string, images []provider.ImageCon
 	// formatRetries counts turns re-asked because the backend could not parse
 	// the model's tool call, and formatHint carries the note for the re-ask.
 	applyNudged := false
+	// evidenceNudged keeps the "you answered without looking" push to once.
+	evidenceNudged := false
 	formatRetries, formatHint := 0, ""
 
 	a.transcript = nil
@@ -512,6 +518,24 @@ func (a *Agent) run(ctx context.Context, task string, images []provider.ImageCon
 			msgs = append(msgs, done, push)
 			a.transcript = append(a.transcript, done, push)
 			if !emit(Event{Kind: KindToolResult, Tool: "(apply)", Result: applyNudge}) {
+				return
+			}
+			continue
+		}
+
+		if len(calls) == 0 && a.RequireEvidence && !evidenceNudged && m.ToolCalls == 0 &&
+			turn < maxTurns && a.canRun("glob") {
+			// Answered a checkable question from memory. Measured 2026-10-01:
+			// bonsai-27b, asked to count the .py files in src/qrl/lang, made no
+			// tool call and answered 8 (there are 9) - it listed from the
+			// project map, which it misread. Routing it to the careful model
+			// did not make it look; this does.
+			evidenceNudged = true
+			done := provider.Message{Role: provider.RoleAssistant, Content: answer}
+			push := provider.Message{Role: provider.RoleUser, Content: evidenceNudge}
+			msgs = append(msgs, done, push)
+			a.transcript = append(a.transcript, done, push)
+			if !emit(Event{Kind: KindToolResult, Tool: "(evidence)", Result: evidenceNudge}) {
 				return
 			}
 			continue
@@ -872,6 +896,13 @@ func (a *Agent) canRun(name string) bool {
 	_, ok := a.Tools.Get(name)
 	return ok && !a.blocked[name]
 }
+
+// evidenceNudge sends back an answer to a checkable question that no tool
+// call stands behind.
+const evidenceNudge = "You answered without checking anything. This question has a " +
+	"checkable answer, so check it now with a tool (glob, grep or read_file) - " +
+	"do not count or recall from the project map. Then give your final answer, " +
+	"using the numbers and names the tools report."
 
 // verifyNudge is sent when a run finishes with edits that were never run.
 func verifyNudge(changed []string, check string) string {

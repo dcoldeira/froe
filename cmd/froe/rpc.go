@@ -124,7 +124,8 @@ func (h *rpcHandler) Run(ctx context.Context, p rpc.RunParams, emit func(rpc.Eve
 		return nil, errors.New("empty task")
 	}
 
-	if err := h.route(ctx, task, p.Selection != "", emit); err != nil {
+	class, err := h.route(ctx, task, p.Selection != "", emit)
+	if err != nil {
 		return nil, err
 	}
 
@@ -167,6 +168,7 @@ func (h *rpcHandler) Run(ctx context.Context, p rpc.RunParams, emit func(rpc.Eve
 		Context:             projectCtx,
 		History:             h.history,
 		MaxToolResultTokens: effectiveContext(ctx, h.choice.Model, h.choice.Runtime, style{}, true) / 4,
+		RequireEvidence:     class == resolve.RouteCareful,
 	}
 
 	var (
@@ -219,13 +221,16 @@ func (h *rpcHandler) Run(ctx context.Context, p rpc.RunParams, emit func(rpc.Eve
 // the pinned one otherwise, loaded either way. A model that fails to load ends
 // the run with the load error rather than quietly using another - a surprise
 // model is worse than a clear failure (resolve.Pick).
-func (h *rpcHandler) route(ctx context.Context, task string, hasSelection bool, emit func(rpc.EventParams)) error {
+//
+// The class is returned even when a model is pinned: a task that needs
+// checking needs it whichever model answers (agent.RequireEvidence).
+func (h *rpcHandler) route(ctx context.Context, task string, hasSelection bool, emit func(rpc.EventParams)) (string, error) {
 	choice := h.choice
+	class, why := resolve.Route(task, hasSelection)
 	if h.routing {
-		class, why := resolve.Route(task, hasSelection)
 		c, err := resolve.PickWithPreference(ctx, h.cat, "", resolve.RoutePreference[class])
 		if err != nil {
-			return err
+			return "", err
 		}
 		choice = c
 		emit(rpc.EventParams{Kind: "route", Text: fmt.Sprintf("%s → %s (%s)", class, c.Model.ID, why)})
@@ -233,20 +238,20 @@ func (h *rpcHandler) route(ctx context.Context, task string, hasSelection bool, 
 
 	loaded, err := resolve.EnsureLoaded(ctx, choice)
 	if err != nil {
-		return err
+		return "", err
 	}
 	if loaded {
 		emit(rpc.EventParams{Kind: "route", Text: "loaded " + choice.Model.ID})
 	}
 	if choice.Model.ID == h.choice.Model.ID {
-		return nil
+		return class, nil
 	}
 	prov, err := provider.New(choice.Runtime, choice.Model)
 	if err != nil {
-		return err
+		return "", err
 	}
 	h.choice, h.provider = choice, prov
-	return nil
+	return class, nil
 }
 
 // alwaysAllow approves everything the hard denylist has not already refused.

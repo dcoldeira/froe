@@ -78,7 +78,7 @@ func (Glob) Run(ctx context.Context, args json.RawMessage, env Env) (string, err
 		out = matches[:maxGlobResults]
 		note = fmt.Sprintf("\n(%d more not shown - narrow the pattern)", len(matches)-maxGlobResults)
 	}
-	return strings.Join(out, "\n") + note, nil
+	return "(" + countLine(len(matches), "file", "files") + ")\n" + strings.Join(out, "\n") + note, nil
 }
 
 // matchGlob supports ** in addition to filepath.Match's single-segment globs.

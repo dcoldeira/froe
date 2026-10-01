@@ -163,8 +163,43 @@ func TestGlobReportsNoMatchInTheSharedWording(t *testing.T) {
 		t.Fatalf("no-match result %q is not recognised by IsNoMatch", out)
 	}
 	out, _ = run(t, Glob{}, env, map[string]any{"pattern": "**/*witness*.py"})
-	if out != "src/qrl/causal/witness.py\ntests/test_witness.py" {
+	if out != "(2 files)\nsrc/qrl/causal/witness.py\ntests/test_witness.py" {
 		t.Fatalf("glob = %q", out)
+	}
+}
+
+// The total is stated by the tool, first, so the model copies it instead of
+// counting. 2026-10-01: mistral-large listed nine files and answered 8.
+func TestGrepStatesItsCountsFirst(t *testing.T) {
+	if _, err := exec.LookPath("rg"); err != nil {
+		t.Skip("ripgrep not installed")
+	}
+	env := Env{Root: qrlTree(t)}
+	out, err := run(t, Grep{}, env, map[string]any{"pattern": "witness"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, _, _ := strings.Cut(out, "\n")
+	if !strings.HasPrefix(first, "(") || !strings.HasSuffix(first, " files)") || !strings.Contains(first, "matching line") {
+		t.Fatalf("first line %q does not state the counts", first)
+	}
+
+	// One file: rg prints "12:text" with no path, which must not count as files.
+	out, err = run(t, Grep{}, env, map[string]any{"pattern": "def", "path": "src/qrl/causal/witness.py"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first, _, _ := strings.Cut(out, "\n"); !strings.HasSuffix(first, " in 1 file)") {
+		t.Fatalf("single-file search counted %q", first)
+	}
+}
+
+func TestCountLine(t *testing.T) {
+	if got := countLine(1, "file", "files"); got != "1 file" {
+		t.Errorf("countLine(1) = %q", got)
+	}
+	if got := countLine(9, "file", "files"); got != "9 files" {
+		t.Errorf("countLine(9) = %q", got)
 	}
 }
 
