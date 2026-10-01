@@ -125,7 +125,7 @@ func TestChooseByRoleBreaksSizeTiesByTheOrderGiven(t *testing.T) {
 		{ID: "first", Runtime: "ollama", SizeGB: 0.99, Roles: []string{"fast"}},
 		{ID: "second", Runtime: "ollama", SizeGB: 0.99, Roles: []string{"fast"}},
 	}
-	got, ok := ChooseByRole(models, []string{"fast"}, func(string) bool { return true })
+	got, ok := ChooseByRole(models, []string{"fast"}, func(string) bool { return true }, nil)
 	if !ok || got.ID != "first" {
 		t.Errorf("got %q, want the first of two equal-sized models", got.ID)
 	}
@@ -141,7 +141,7 @@ func TestDefaultCatalogueGivesCommitTheFastGPUModel(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got, ok := ChooseByRole(cat.Models, []string{"commit"}, func(string) bool { return true })
+	got, ok := ChooseByRole(cat.Models, []string{"commit"}, func(string) bool { return true }, nil)
 	if !ok {
 		t.Fatal("no model carries the commit role - `froe commit` would fall back to a size tie")
 	}
@@ -158,7 +158,7 @@ func TestChooseByRoleStillPrefersTheSmallerModel(t *testing.T) {
 		{ID: "big", Runtime: "ollama", SizeGB: 19, Roles: []string{"fast"}},
 		{ID: "small", Runtime: "ollama", SizeGB: 1, Roles: []string{"fast"}},
 	}
-	got, ok := ChooseByRole(models, []string{"fast"}, func(string) bool { return true })
+	got, ok := ChooseByRole(models, []string{"fast"}, func(string) bool { return true }, nil)
 	if !ok || got.ID != "small" {
 		t.Errorf("got %q, want the smaller model", got.ID)
 	}
@@ -171,10 +171,10 @@ func TestChooseByRoleFollowsThePreferenceOrder(t *testing.T) {
 	}
 	up := func(string) bool { return true }
 
-	if got, _ := ChooseByRole(models, []string{"fast", "heavy"}, up); got.ID != "fast-one" {
+	if got, _ := ChooseByRole(models, []string{"fast", "heavy"}, up, nil); got.ID != "fast-one" {
 		t.Errorf("got %q, want fast-one", got.ID)
 	}
-	if got, _ := ChooseByRole(models, []string{"heavy", "fast"}, up); got.ID != "heavy-one" {
+	if got, _ := ChooseByRole(models, []string{"heavy", "fast"}, up, nil); got.ID != "heavy-one" {
 		t.Errorf("got %q, want heavy-one", got.ID)
 	}
 }
@@ -184,7 +184,7 @@ func TestChooseByRoleSkipsModelsWhoseRuntimeIsDown(t *testing.T) {
 		{ID: "lmstudio-model", Runtime: "lmstudio", SizeGB: 1, Roles: []string{"fast"}},
 		{ID: "ollama-model", Runtime: "ollama", SizeGB: 2, Roles: []string{"fast"}},
 	}
-	got, ok := ChooseByRole(models, []string{"fast"}, func(rt string) bool { return rt == "ollama" })
+	got, ok := ChooseByRole(models, []string{"fast"}, func(rt string) bool { return rt == "ollama" }, nil)
 	if !ok || got.ID != "ollama-model" {
 		t.Errorf("got %q, want the model whose runtime is up", got.ID)
 	}
@@ -198,11 +198,11 @@ func TestDefaultRoleBeatsSmallerMain(t *testing.T) {
 		{ID: "tiny-main", Runtime: "live", SizeGB: 3, Roles: []string{"main"}},
 		{ID: "picked", Runtime: "live", SizeGB: 6, Roles: []string{"default", "main"}},
 	}
-	if m, _ := ChooseByRole(models, RolePreference, live); m.ID != "picked" {
+	if m, _ := ChooseByRole(models, RolePreference, live, nil); m.ID != "picked" {
 		t.Fatalf("picked %s, want the default-role model", m.ID)
 	}
 	models[1].Runtime = "dead"
-	if m, _ := ChooseByRole(models, RolePreference, live); m.ID != "tiny-main" {
+	if m, _ := ChooseByRole(models, RolePreference, live, nil); m.ID != "tiny-main" {
 		t.Fatalf("picked %s, want fallback to smallest main", m.ID)
 	}
 }
@@ -217,7 +217,7 @@ func TestUnpulledModelIsNotPicked(t *testing.T) {
 	}
 	present := map[string]map[string]bool{"lms": {"have": true}}
 	live := func(string) bool { return true }
-	m, _ := ChooseByRole(keepPresent(models, present), RolePreference, live)
+	m, _ := ChooseByRole(keepPresent(models, present), RolePreference, live, nil)
 	if m.ID != "have" {
 		t.Fatalf("picked %s, want the pulled main model", m.ID)
 	}

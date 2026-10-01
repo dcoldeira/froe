@@ -36,7 +36,10 @@ notes    = "Headless via `lms daemon up`. Ships kernels ahead of upstream - the 
 # Unload first: an 8 GB card holds one of these models, and two loaded models
 # confuse the context probe. Parallel 1 keeps the whole 8192 window - JIT
 # auto-load defaults to 4 parallel slots, which quarters it.
-load     = ["sh", "-c", "lms unload --all && lms load {model} --gpu max --context-length 8192 --parallel 1 --ttl 1800 -y"]
+# Server start first: lms load works with the HTTP server stopped and leaves
+# it stopped (measured 2026-10-01 after `lms server stop` - Bonsai loaded, port
+# 1234 still refused). Starting a running server is a no-op that exits 0.
+load     = ["sh", "-c", "lms server start && lms unload --all && lms load {model} --gpu max --context-length 8192 --parallel 1 --ttl 1800 -y"]
 
 [runtime.mistral]
 kind     = "openai-compat"

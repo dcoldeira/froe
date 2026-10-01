@@ -7,6 +7,7 @@ package resolve
 import (
 	"context"
 	"fmt"
+	"os/exec"
 	"sort"
 	"strings"
 
@@ -60,12 +61,68 @@ func PickWithPreference(ctx context.Context, cat *registry.Catalogue, id string,
 	}
 
 	probes := probe.All(ctx, cat.Runtimes)
+	models := pulled(ctx, cat, probes)
+	up := func(rt string) bool { return probes[rt].OK }
+	hosted := func(rt string) bool { return cat.Runtimes[rt].Hosted() }
 
-	if m, ok := ChooseByRole(pulled(ctx, cat, probes), pref, func(rt string) bool { return probes[rt].OK }); ok {
+	m, ok := ChooseByRole(models, pref, up, hosted)
+	if want, leaves := leavesMachine(models, pref, cat.Runtimes, m, ok); leaves {
+		// The local model meant for this is down. Wake its runtime rather than
+		// send the work somewhere else. Measured 2026-10-01: with the LM Studio
+		// service asleep, routing went to codestral-latest and
+		// mistral-large-latest on the Mistral API, and the only sign was the
+		// model name on the route line.
+		rt := cat.Runtimes[want.Runtime]
+		if wake(ctx, rt, want) {
+			return Choice{Model: want, Runtime: rt}, nil
+		}
+		rep := probes[want.Runtime]
+		if !ok {
+			return Choice{}, fmt.Errorf("%s is the model for this, but %s is %s (%s)",
+				want.ID, rt.Name, rep.State, rep.Detail)
+		}
+		return Choice{}, fmt.Errorf("%s is the model for this, but %s is %s (%s). "+
+			"froe will not send the task to %s on %s, which is hosted, without being told to: "+
+			"start %s, or pin the hosted model (--model %s, or :FroeModel %s in Neovim)",
+			want.ID, rt.Name, rep.State, rep.Detail, m.ID, m.Runtime, rt.Name, m.ID, m.ID)
+	}
+	if ok {
 		return Choice{Model: m, Runtime: cat.Runtimes[m.Runtime]}, nil
 	}
 
 	return Choice{}, fmt.Errorf("no model is available: %s", summarise(probes))
+}
+
+// leavesMachine reports whether the pick (got, ok) falls back from the local
+// model the preference names to a hosted one, or to nothing, only because the
+// local runtime is down. want is the model the preference would pick if every
+// runtime were up.
+//
+// A fallback between local models is left alone: the work stays here.
+func leavesMachine(models []registry.Model, pref []string, runtimes map[string]registry.Runtime,
+	got registry.Model, ok bool) (registry.Model, bool) {
+	hosted := func(rt string) bool { return runtimes[rt].Hosted() }
+	want, found := ChooseByRole(models, pref, func(string) bool { return true }, hosted)
+	if !found || runtimes[want.Runtime].Hosted() {
+		return registry.Model{}, false
+	}
+	if ok && (got.ID == want.ID || !runtimes[got.Runtime].Hosted()) {
+		return registry.Model{}, false
+	}
+	return want, true
+}
+
+// wake runs a down runtime's load command for m and reports whether the
+// runtime then answers. LM Studio's service sleeps when idle, and lms wakes it.
+func wake(ctx context.Context, rt registry.Runtime, m registry.Model) bool {
+	if len(rt.Load) == 0 {
+		return false
+	}
+	argv := LoadCommand(rt.Load, m.ServeID())
+	if err := exec.CommandContext(ctx, argv[0], argv[1:]...).Run(); err != nil {
+		return false
+	}
+	return probe.Runtime(ctx, rt).OK
 }
 
 // pulled drops models a running local runtime reports it does not have.
@@ -113,7 +170,13 @@ func keepPresent(models []registry.Model, present map[string]map[string]bool) []
 // should lose - measured 2026-09-15 on one diff with both models cold, 71.8s
 // against 7.5s. The fix is a dedicated role naming the intended model, not an
 // ordering trick.
-func ChooseByRole(models []registry.Model, pref []string, available func(runtime string) bool) (registry.Model, bool) {
+//
+// Local before hosted, then smallest. A hosted model has no size_gb, so by size
+// alone it counted as 0 GB and beat every local model in its role: found
+// 2026-10-01 with the shipped catalogue, LM Studio down and Ollama up, the
+// quick route picked codestral-latest over the local ministral-3:8b. hosted
+// may be nil, meaning nothing is hosted.
+func ChooseByRole(models []registry.Model, pref []string, available, hosted func(runtime string) bool) (registry.Model, bool) {
 	for _, role := range pref {
 		var candidates []registry.Model
 		for _, m := range models {
@@ -125,6 +188,11 @@ func ChooseByRole(models []registry.Model, pref []string, available func(runtime
 			continue
 		}
 		sort.SliceStable(candidates, func(i, j int) bool {
+			if hosted != nil {
+				if hi, hj := hosted(candidates[i].Runtime), hosted(candidates[j].Runtime); hi != hj {
+					return hj
+				}
+			}
 			return candidates[i].SizeGB < candidates[j].SizeGB
 		})
 		return candidates[0], true

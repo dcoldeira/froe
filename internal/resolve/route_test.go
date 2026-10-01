@@ -47,10 +47,10 @@ func TestRoutePreferenceUsesRouteRoles(t *testing.T) {
 	}
 	up := func(string) bool { return true }
 
-	if m, _ := ChooseByRole(models, RoutePreference[RouteQuick], up); m.ID != "small" {
+	if m, _ := ChooseByRole(models, RoutePreference[RouteQuick], up, nil); m.ID != "small" {
 		t.Errorf("quick picked %s, want small", m.ID)
 	}
-	if m, _ := ChooseByRole(models, RoutePreference[RouteCareful], up); m.ID != "big" {
+	if m, _ := ChooseByRole(models, RoutePreference[RouteCareful], up, nil); m.ID != "big" {
 		t.Errorf("careful picked %s, want big", m.ID)
 	}
 }
@@ -63,7 +63,7 @@ func TestRoutePreferenceFallsBackToDefault(t *testing.T) {
 	}
 	up := func(string) bool { return true }
 	for class, pref := range RoutePreference {
-		if m, _ := ChooseByRole(models, pref, up); m.ID != "only" {
+		if m, _ := ChooseByRole(models, pref, up, nil); m.ID != "only" {
 			t.Errorf("%s picked %s, want only", class, m.ID)
 		}
 	}
