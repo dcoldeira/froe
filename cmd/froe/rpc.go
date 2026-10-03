@@ -217,31 +217,13 @@ func (h *rpcHandler) Run(ctx context.Context, p rpc.RunParams, emit func(rpc.Eve
 	return res, nil
 }
 
-// route settles the model for one task: the routed one when routing is on,
-// the pinned one otherwise, loaded either way. A model that fails to load ends
-// the run with the load error rather than quietly using another - a surprise
-// model is worse than a clear failure (resolve.Pick).
-//
-// The class is returned even when a model is pinned: a task that needs
-// checking needs it whichever model answers (agent.RequireEvidence).
+// route settles the model for one task (settleModel) and swaps the provider
+// when the model changed.
 func (h *rpcHandler) route(ctx context.Context, task string, hasSelection bool, emit func(rpc.EventParams)) (string, error) {
-	choice := h.choice
-	class, why := resolve.Route(task, hasSelection)
-	if h.routing {
-		c, err := resolve.PickWithPreference(ctx, h.cat, "", resolve.RoutePreference[class])
-		if err != nil {
-			return "", err
-		}
-		choice = c
-		emit(rpc.EventParams{Kind: "route", Text: fmt.Sprintf("%s → %s (%s)", class, c.Model.ID, why)})
-	}
-
-	loaded, err := resolve.EnsureLoaded(ctx, choice)
+	class, choice, err := settleModel(ctx, h.cat, h.choice, h.routing, task, hasSelection,
+		func(s string) { emit(rpc.EventParams{Kind: "route", Text: s}) })
 	if err != nil {
 		return "", err
-	}
-	if loaded {
-		emit(rpc.EventParams{Kind: "route", Text: "loaded " + choice.Model.ID})
 	}
 	if choice.Model.ID == h.choice.Model.ID {
 		return class, nil

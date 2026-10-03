@@ -107,12 +107,20 @@ func runChat(ctx context.Context, args []string) error {
 		MaxToolResultTokens: effectiveContext(ctx, choice.Model, choice.Runtime, style, true) / 4,
 	}
 
-	fmt.Fprintf(os.Stderr, "%s %s via %s %s\n",
-		style.dim("→"), style.bold(choice.Model.ID), style.dim(choice.Runtime.Name),
-		style.dim(fmt.Sprintf("· %d tools · %s", len(reg.Names()), shortID(sess))))
-	fmt.Fprintln(os.Stderr, style.dim("  /help for commands, Ctrl-D to exit"))
+	// No pinned model means each task is routed, as in Neovim.
+	m := &chatModels{cat: cat, routing: *model == "", choice: choice}
+	if m.routing {
+		fmt.Fprintf(os.Stderr, "%s %s %s\n",
+			style.dim("→"), style.bold("auto"),
+			style.dim(fmt.Sprintf("· each task goes to a quick or careful model · %d tools · %s", len(reg.Names()), shortID(sess))))
+	} else {
+		fmt.Fprintf(os.Stderr, "%s %s via %s %s\n",
+			style.dim("→"), style.bold(choice.Model.ID), style.dim(choice.Runtime.Name),
+			style.dim(fmt.Sprintf("· %d tools · %s", len(reg.Names()), shortID(sess))))
+	}
+	fmt.Fprintln(os.Stderr, style.dim("  /help for commands, /model to pin or route, Ctrl-D to exit"))
 
-	return chatLoop(ctx, a, st, sess, root, cwd, choice.Model, choice.Runtime, *reasoning, *noContext, style)
+	return chatLoop(ctx, a, st, sess, root, cwd, m, *reasoning, *noContext, style)
 }
 
 // startSession resumes an existing conversation or begins a new one.
@@ -149,10 +157,16 @@ func startSession(st *session.Store, root, resume, model, title string, style st
 	return s, history, nil
 }
 
+// chatModels is which model the chat uses: routed per task, or pinned.
+type chatModels struct {
+	cat     *registry.Catalogue
+	routing bool
+	choice  resolve.Choice
+}
+
 // chatLoop reads tasks and runs the agent until EOF.
 func chatLoop(ctx context.Context, a *agent.Agent, st *session.Store, sess *session.Session,
-	root, cwd string, model registry.Model, runtime registry.Runtime,
-	reasoning, noContext bool, style style) error {
+	root, cwd string, m *chatModels, reasoning, noContext bool, style style) error {
 
 	scr, err := newScreen(style)
 	if err != nil {
@@ -178,7 +192,7 @@ func chatLoop(ctx context.Context, a *agent.Agent, st *session.Store, sess *sess
 	// The first turn's cost is prefill of ~4000 tokens. The only real lever on
 	// that is a smaller prompt, not a cleverer schedule.
 	if !noContext {
-		a.Context = buildContextWithRuntime(ctx, cwd, "", model, runtime, style, false)
+		a.Context = buildContextWithRuntime(ctx, cwd, "", m.choice.Model, m.choice.Runtime, style, false)
 		if st != nil {
 			a.Context = withMemories(a.Context, st, root)
 		}
@@ -193,12 +207,47 @@ func chatLoop(ctx context.Context, a *agent.Agent, st *session.Store, sess *sess
 		if line == "" {
 			continue
 		}
+		if cmd, rest, _ := strings.Cut(line, " "); cmd == "/model" {
+			modelCommand(ctx, m, strings.TrimSpace(rest), style)
+			continue
+		}
 		if strings.HasPrefix(line, "/") {
 			if quit := handleSlash(line, a, st, sess, root, style); quit {
 				return nil
 			}
 			continue
 		}
+
+		images, err := loadAttachedImages(line)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "%s %v\n", style.yellow("error:"), err)
+			continue
+		}
+
+		// Ctrl+C in the box stops this run, not the chat - including a model
+		// load that routing started.
+		runCtx, cancel := context.WithCancel(ctx)
+		scr.startRun(cancel)
+
+		class, choice, err := settleModel(runCtx, m.cat, m.choice, m.routing, line, false,
+			func(s string) { fmt.Fprintf(os.Stderr, "  %s\n", style.dim("↪ "+s)) })
+		if err == nil && choice.Model.ID != a.Model.ID {
+			var prov provider.Provider
+			if prov, err = provider.New(choice.Runtime, choice.Model); err == nil {
+				a.Provider, a.Model = prov, choice.Model
+				a.MaxToolResultTokens = effectiveContext(runCtx, choice.Model, choice.Runtime, style, true) / 4
+				// The map was budgeted for the previous model's window.
+				a.Context = ""
+			}
+		}
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "%s %v\n", style.yellow("error:"), err)
+			scr.endRun()
+			cancel()
+			continue
+		}
+		m.choice = choice
+		a.RequireEvidence = class == resolve.RouteCareful
 
 		// Build the project context ONCE and reuse it verbatim.
 		//
@@ -210,7 +259,7 @@ func chatLoop(ctx context.Context, a *agent.Agent, st *session.Store, sess *sess
 		// deliberately when the project has actually changed.
 		// /refresh clears the context; rebuild it ranked against this message.
 		if a.Context == "" && !noContext {
-			a.Context = buildContextWithRuntime(ctx, cwd, line, model, runtime, style, false)
+			a.Context = buildContextWithRuntime(ctx, cwd, line, m.choice.Model, m.choice.Runtime, style, false)
 			if st != nil {
 				a.Context = withMemories(a.Context, st, root)
 			}
@@ -221,16 +270,7 @@ func chatLoop(ctx context.Context, a *agent.Agent, st *session.Store, sess *sess
 			_ = st.SetTitle(sess.ID, line)
 		}
 
-		images, err := loadAttachedImages(line)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "%s %v\n", style.yellow("error:"), err)
-			continue
-		}
-
 		var metrics *agent.Metrics
-		// Ctrl+C in the box stops this run, not the chat.
-		runCtx, cancel := context.WithCancel(ctx)
-		scr.startRun(cancel)
 		if err := renderAgentCollect(runCtx, a.Run(runCtx, line, images...), style, reasoning, &metrics); err != nil {
 			fmt.Fprintf(os.Stderr, "%s %v\n", style.yellow("error:"), err)
 		}
@@ -254,6 +294,7 @@ func handleSlash(line string, a *agent.Agent, st *session.Store, sess *session.S
   /forget <id>       delete a memory
   /clear             forget this conversation (memories are kept)
   /refresh           rebuild the project map (do this after big changes)
+  /model [id|auto]   show the model, pin one, or route each task (auto)
   /session           show the current session id
   /exit              leave`))
 	case "exit", "quit", "q":
@@ -338,4 +379,29 @@ func shortID(s *session.Session) string {
 		return "no session (memory disabled)"
 	}
 	return "session " + s.ID
+}
+
+// modelCommand shows, pins or unpins the chat's model - the terminal's
+// counterpart to the Neovim model picker. A pinned model takes effect on the
+// next task, which loads it if it is not the loaded one.
+func modelCommand(ctx context.Context, m *chatModels, arg string, style style) {
+	switch arg {
+	case "":
+		if m.routing {
+			fmt.Fprintln(os.Stderr, style.dim("  auto: each task goes to a quick or careful model (last: "+m.choice.Model.ID+")"))
+		} else {
+			fmt.Fprintln(os.Stderr, style.dim("  pinned to "+m.choice.Model.ID+" · /model auto to route per task"))
+		}
+	case "auto":
+		m.routing = true
+		fmt.Fprintln(os.Stderr, style.dim("  routing each task"))
+	default:
+		c, err := resolve.Pick(ctx, m.cat, arg)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "%s %v\n", style.yellow("error:"), err)
+			return
+		}
+		m.choice, m.routing = c, false
+		fmt.Fprintln(os.Stderr, style.dim("  pinned to "+c.Model.ID))
+	}
 }
