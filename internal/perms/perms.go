@@ -69,6 +69,11 @@ type Gate struct {
 	// is persisted: a standing grant should be a deliberate config edit, not a
 	// side effect of one impatient keypress.
 	allowed map[string]bool
+	// Prompt, when set, asks the question instead of the line read from In.
+	// `froe chat` sets it so the answer is typed into its prompt box; every
+	// other front end leaves it nil. The policy above it - modes, standing
+	// grants, the no-terminal refusal - applies either way.
+	Prompt func(Request) Decision
 }
 
 // NewGate builds a gate reading from stdin and writing to stderr, so prompts
@@ -105,6 +110,14 @@ func (g *Gate) Ask(req Request) Decision {
 	if !g.Interactive() {
 		fmt.Fprintf(g.Out, "  refused (%s): no terminal to ask on - rerun interactively or use --yolo\n", req.Tool)
 		return DenyPermanently
+	}
+
+	if g.Prompt != nil {
+		d := g.Prompt(req)
+		if d == AlwaysAllow {
+			g.allowed[req.Tool] = true
+		}
+		return d
 	}
 
 	fmt.Fprintf(g.Out, "\n  %s\n", req.Summary)

@@ -154,6 +154,18 @@ func chatLoop(ctx context.Context, a *agent.Agent, st *session.Store, sess *sess
 	root, cwd string, model registry.Model, runtime registry.Runtime,
 	reasoning, noContext bool, style style) error {
 
+	scr, err := newScreen(style)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		scr.close()
+		fmt.Fprintln(os.Stderr, style.dim("bye"))
+	}()
+	if g, ok := a.Gate.(*perms.Gate); ok {
+		g.Prompt = scr.ask
+	}
+
 	// Build the project context up front so the first turn does not also pay
 	// for building it.
 	//
@@ -172,12 +184,9 @@ func chatLoop(ctx context.Context, a *agent.Agent, st *session.Store, sess *sess
 		}
 	}
 
-	input := newLineReader("› ")
-
 	for {
-		line, err := input.read()
+		line, err := scr.next()
 		if err != nil {
-			fmt.Fprintln(os.Stderr, style.dim("\nbye"))
 			return nil
 		}
 		line = strings.TrimSpace(line)
@@ -219,41 +228,19 @@ func chatLoop(ctx context.Context, a *agent.Agent, st *session.Store, sess *sess
 		}
 
 		var metrics *agent.Metrics
-		if err := renderAgentCollect(ctx, a.Run(ctx, line, images...), style, reasoning, &metrics); err != nil {
+		// Ctrl+C in the box stops this run, not the chat.
+		runCtx, cancel := context.WithCancel(ctx)
+		scr.startRun(cancel)
+		if err := renderAgentCollect(runCtx, a.Run(runCtx, line, images...), style, reasoning, &metrics); err != nil {
 			fmt.Fprintf(os.Stderr, "%s %v\n", style.yellow("error:"), err)
 		}
+		scr.endRun()
+		cancel()
 		saveRun(st, sess, a, metrics, a.Model.ID)
 
 		// Carry the exchange forward so the next turn has context.
 		a.History = trimHistory(append(a.History, a.Transcript()...), maxHistoryChars)
 	}
-}
-
-// lineReader reads prompts with editing and history.
-//
-// The terminal is created ONCE and reused. A fresh term.Terminal per line
-// discards whatever it had already buffered — which silently swallowed every
-// command after the first when input was piped — and loses history, so arrow-up
-// would do nothing. Raw mode is toggled around each read so that streamed model
-// output in between keeps ordinary newline handling.
-type lineReader struct {
-	fd     int
-	term   *term.Terminal
-	prompt string
-}
-
-func newLineReader(prompt string) *lineReader {
-	fd := int(os.Stdin.Fd())
-	return &lineReader{fd: fd, term: term.NewTerminal(os.Stdin, prompt), prompt: prompt}
-}
-
-func (l *lineReader) read() (string, error) {
-	old, err := term.MakeRaw(l.fd)
-	if err != nil {
-		return "", err
-	}
-	defer term.Restore(l.fd, old)
-	return l.term.ReadLine()
 }
 
 func handleSlash(line string, a *agent.Agent, st *session.Store, sess *session.Session, root string, style style) bool {
