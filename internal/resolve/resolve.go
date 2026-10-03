@@ -51,7 +51,11 @@ func PickWithPreference(ctx context.Context, cat *registry.Catalogue, id string,
 			if !ok {
 				return Choice{}, fmt.Errorf("model %q references undefined runtime %q", id, m.Runtime)
 			}
-			if rep := probe.Runtime(ctx, rt); !rep.OK {
+			// A pinned model wakes its runtime too, not only a routed one.
+			// Found 2026-10-03: `froe do -model bonsai-27b-lmstudio` on a cold
+			// machine failed with lmstudio "not responding", while the same
+			// task unpinned would have started LM Studio and gone ahead.
+			if rep := probe.Runtime(ctx, rt); !rep.OK && !wake(ctx, rt, m) {
 				return Choice{}, fmt.Errorf("model %q needs runtime %q, which is %s (%s)",
 					id, rt.Name, rep.State, rep.Detail)
 			}

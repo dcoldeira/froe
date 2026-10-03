@@ -4,8 +4,10 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/dcoldeira/froe/internal/registry"
 )
@@ -87,6 +89,63 @@ func TestPickNeverSubstitutesAnExplicitModel(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "wanted") {
 		t.Errorf("error should name the requested model, got: %v", err)
+	}
+}
+
+// A pinned model on a down runtime runs the runtime's load command and is
+// picked once the runtime answers, rather than failing on the first probe.
+func TestPickWakesThePinnedModelsRuntime(t *testing.T) {
+	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+	marker := t.TempDir() + "/loaded"
+
+	// The load command stands in for `lms server start && lms load`: it leaves
+	// a marker, and the server comes up when the marker appears - so the
+	// runtime is down at the first probe and up only because the command ran.
+	go func() {
+		for {
+			if _, err := os.Stat(marker); err == nil {
+				srv.Start()
+				return
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+	}()
+	rt := registry.Runtime{
+		Name: "sleepy", Kind: "openai-compat", BaseURL: "http://" + srv.Listener.Addr().String(),
+		Load: []string{"sh", "-c", "echo {model} > " + marker + " && sleep 0.3"},
+	}
+	cat := &registry.Catalogue{
+		Runtimes: map[string]registry.Runtime{"sleepy": rt},
+		Models:   []registry.Model{{ID: "pinned", RuntimeID: "vendor/pinned", Runtime: "sleepy"}},
+	}
+
+	c, err := Pick(context.Background(), cat, "pinned")
+	if err != nil {
+		t.Fatalf("pinned model should be picked once its runtime answers: %v", err)
+	}
+	if c.Model.ID != "pinned" {
+		t.Errorf("picked %q, want pinned", c.Model.ID)
+	}
+	if b, _ := os.ReadFile(marker); strings.TrimSpace(string(b)) != "vendor/pinned" {
+		t.Errorf("load command got %q, want the serve id vendor/pinned", b)
+	}
+}
+
+// A pinned model whose runtime stays down after the load command is still an
+// error naming the model, never a substitution.
+func TestPickPinnedStillFailsWhenWakeDoesNotHelp(t *testing.T) {
+	rt := deadRuntime("dead")
+	rt.Load = []string{"true"}
+	cat := &registry.Catalogue{
+		Runtimes: map[string]registry.Runtime{"dead": rt},
+		Models:   []registry.Model{{ID: "wanted", Runtime: "dead"}},
+	}
+	_, err := Pick(context.Background(), cat, "wanted")
+	if err == nil || !strings.Contains(err.Error(), "wanted") {
+		t.Fatalf("expected an error naming the model, got: %v", err)
 	}
 }
 
