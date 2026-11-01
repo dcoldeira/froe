@@ -4,6 +4,53 @@ Open work, newest findings first. Every item comes from something observed or
 measured, and says where. The phase-by-phase history that led here is being
 rewritten against fresh measurements and will be added back when it is.
 
+## colibri as the default runtime
+
+**Decided 2026-11-01.** Froe prefers open-source runtimes, and the default was
+LM Studio, a closed binary. [colibri](https://github.com/JustVugg/colibri)
+(Apache 2.0, pure C, Linux/macOS/Windows) becomes the default. It runs
+mixture-of-experts models by keeping the active part in RAM and streaming the
+experts from disk, so a machine's RAM and disk matter more than its VRAM.
+LM Studio stays as a supported runtime with no default roles.
+
+Facts that shape the integration, from colibri's own docs (v2.1.0):
+- `coli serve` speaks OpenAI-compatible `/v1/chat/completions` with native tool
+  calling on its chat engines (the Qwen3.6 engine also runs Qwen3-Coder and
+  Flint). OLMoE and Inkling have no tool calling.
+- Its GBNF support only drafts tokens for speed; it never constrains sampling.
+  So `grammar = "no"`, and tool calls go through the native format.
+- One model per server. Routing between two models means restarting the
+  server, or one model in both roles.
+
+To do:
+- `[runtime.colibri]` in `runtimes.toml`, and registry entries for the coding
+  candidates: Qwen3-Coder-30B-A3B (imported 2026-10-31 on the reference laptop)
+  and Flint 40B-A2.5B.
+- A `load` command that restarts `coli serve` on another model.
+- Read the served context window instead of assuming 8192 (`internal/probe`).
+- `froe doctor`: a fit verdict from RAM and free disk for colibri models, not
+  from VRAM alone.
+- Run the full eval, 3 repeats per model, and set roles from the result. The
+  120 s bar per run still applies: a model that is good but too slow fails.
+- Then rewrite `docs/SETUP.md` §4 and the README's eval table from those runs.
+- Upstream: send colibri the benchmark rows (they ask for them, negative results
+  included) and any tool-call bugs the eval finds.
+
+## The CLI as a full client, and Windows
+
+**Decided 2026-11-01.** Many people will use froe without Neovim, so the
+terminal is a first-class client, not a fallback. Features move between the two
+together, through shared code.
+
+To do:
+- Decide what `froe chat` lacks for daily use, and whether the hand-written
+  screen (`cmd/froe/screen.go`) keeps up or a TUI library replaces it.
+- Windows: the gaps in the next section, plus `sh -c` in runtime `load`
+  templates, a newline key the Windows console can deliver (Ctrl+Shift+Enter
+  may not reach the program), ANSI output enabled at start, the config
+  directory under `%APPDATA%`, and CRLF files in the edit tool.
+- A Windows CI job running `go test`.
+
 ## Per-task model routing
 
 **Started 2026-09-29, Neovim only so far.** With no model pinned, each task in
@@ -53,8 +100,8 @@ To do:
   cross-compile says nothing about behaviour.
 
 **Until then: WSL2.** Inside WSL, `froe` is on Linux and behaves as it does
-anywhere else. Ollama or LM Studio can run as the normal Windows app and be
-reached from WSL.
+anywhere else. The model runtime (Ollama, or colibri, which ships a native
+Windows build) can run on Windows itself and be reached from WSL.
 
 ## Ollama context length
 

@@ -6,7 +6,7 @@
 
 <p align="center">
   <em>A local-first coding agent for the terminal and Neovim.<br>
-  Small bounded commands, a 4&nbsp;GB-VRAM laptop, and no source code leaving the machine.</em>
+  Small bounded commands, local open models, and no source code leaving the machine.</em>
 </p>
 
 <p align="center">
@@ -106,12 +106,19 @@ files, an 1876-line target, four decoys that all match the obvious glob:
 2. **Model churn.** The best local model changes every few months. Nothing about
    a model is compiled in — models are registry entries, hardware profiles are
    detected, and a runtime is a binary path rather than a name.
-3. **Modest hardware, honestly.** It runs on a 4 GB-VRAM work laptop and is
-   designed around that, not around a machine that is not coming. `froe doctor`
-   measures what a box can actually do instead of assuming.
-4. **Neovim is the editor.** Not "there's a VS Code extension, and also a
-   terminal mode". The editor integration is a first-class client of the same
-   binary.
+3. **Open source, end to end.** The code that sees your source should be code
+   you can read. Froe is MIT, and the recommended runtimes are open source
+   (llama.cpp, Ollama, vLLM, and [colibri](https://github.com/JustVugg/colibri)).
+   Closed runtimes work through the same adapter, but none is the recommended path.
+   One honest exception for now: the shipped default model still runs on
+   LM Studio, until the switch to colibri lands.
+4. **Measured on ordinary hardware.** The numbers below come from one laptop
+   with 16 GB of RAM and an 8 GB GPU. Nothing is tuned for that box in particular:
+   `froe doctor` measures what a machine can actually do instead of assuming,
+   and a bigger one simply runs bigger models.
+5. **Two clients, one binary.** The terminal (`froe chat` and the one-shot
+   commands) and Neovim are both first-class. Neither is a wrapper around the
+   other: they share one agent, one permission gate and one session store.
 
 ## Install
 
@@ -123,23 +130,28 @@ froe doctor
 ```
 
 Then point it at a model runtime. Froe speaks OpenAI-compatible
-`/v1/chat/completions` as its lingua franca, so llama.cpp, Ollama, LM Studio and
-vLLM all work through one adapter. Mistral (EU-hosted) is the cloud fallback for
-when local hardware can't fit the job — the sane choice when governance forbids
-US processing; Anthropic has its own adapter for those who want it regardless.
-Full walkthrough, including a headless LM Studio and the Neovim plugin:
-[`docs/SETUP.md`](docs/SETUP.md).
+`/v1/chat/completions` as its lingua franca, so llama.cpp, Ollama and vLLM all
+work through one adapter. LM Studio works through the same adapter, but it is a
+closed binary, so it is supported rather than recommended.
+[colibri](https://github.com/JustVugg/colibri), an open-source engine that runs
+large mixture-of-experts models by streaming experts from disk, is becoming the
+default runtime; that work is tracked in [`docs/ROADMAP.md`](docs/ROADMAP.md).
+Mistral (EU-hosted) is the cloud fallback for when local hardware can't fit the
+job — the sane choice when governance forbids US processing; Anthropic has its
+own adapter for those who want it regardless. Nothing local ever falls back to
+a hosted model without being told to.
+Full walkthrough, including the Neovim plugin: [`docs/SETUP.md`](docs/SETUP.md).
 
 ⚠ One runtime footgun worth knowing before you hit it: Ollama's `num_ctx`
 defaults to 4096 and **silently truncates** everything past it.
 
 ## Design in one paragraph
 
-A single static Go binary (~14k lines) holds the agent loop, the tool
+A single static Go binary (~13k lines) holds the agent loop, the tool
 implementations and the provider adapters. Tool calls are produced three
 different ways — GBNF grammar, native tool-calling, or a ReAct text protocol —
 because which one works is a property of the *model*, not a global default. A
-~550-line Lua plugin drives the same binary from Neovim over JSON-RPC on stdio,
+~580-line Lua plugin drives the same binary from Neovim over JSON-RPC on stdio,
 the LSP pattern, so the editor and the terminal share one implementation, one
 permission gate and one session store.
 
@@ -163,7 +175,9 @@ bash eval/run.sh            # all tasks
 ONLY=01-fix-panic bash eval/run.sh
 ```
 
-Latest, same build, 3 runs per task, on an 8 GB RTX 4060 laptop (2026-09-25):
+Latest, same build, 3 runs per task, on a laptop with an 8 GB RTX 4060 and
+16 GB of RAM (2026-09-25). These runs predate the move away from LM Studio and
+will be re-run on open runtimes:
 
 | Model | Runtime | Score | Suite time |
 |---|---|---|---|
@@ -181,11 +195,17 @@ Public since 2026-09-23.
 In daily use for commits: `froe commit` drives the release process for
 [QRL](https://github.com/entangledcode/qrl) and [Bell](https://bell.entangledcode.dev),
 the two projects it was built to develop. `froe locate` is the first of the stepwise
-commands and is measured above. `explain`, `plan` and `step` are next.
+commands and is measured above. More stepwise commands (`explain`, `plan`,
+`step`) are planned, not built.
+
+**Platforms:** Linux is where it is used and measured. It builds for macOS and
+Windows, but neither has been run end to end; on Windows, use WSL2 for now
+([`docs/ROADMAP.md`](docs/ROADMAP.md) lists the gaps).
 
 **Not claimed:** this is not a replacement for a frontier-model coding agent, and
-it is not trying to be. It is what a 4 GB-VRAM laptop can honestly do, plus a lot
-of deterministic Go making sure the model did not quietly get it wrong.
+it is not trying to be. It is what local open models can honestly do on the
+machine in front of you, plus a lot of deterministic Go making sure the model did
+not quietly get it wrong.
 
 One design point worth calling out: for `froe commit`, the model is only ever
 asked for *message text*, never for commands. Every git call is fixed Go with a

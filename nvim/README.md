@@ -6,7 +6,7 @@ implementation, one session store and one set of tools.
 
 **The plugin holds no agent logic.** It is a transport and a renderer. If it
 grows past ~500 lines, something has leaked out of the binary
-(`docs/ARCHITECTURE.md` §8). Currently ~550, so it is due a trim.
+(`docs/ARCHITECTURE.md` §8). Currently ~580, so it is due a trim.
 
 ## Install
 
@@ -30,8 +30,8 @@ return {
       mode = "ask",          -- "ask" | "accept-edits" | "yolo"
       show_reasoning = false,
       -- Optional: what :FroeLaunch runs to bring the model up. Machine-specific.
-      launch = { "sh", "-c", "lms unload --all && lms load mistralai/ministral-3-8b"
-        .. " --gpu max --context-length 8192 --parallel 1 -y" },
+      -- e.g. { "ollama", "serve" } or your llama-server command line.
+      -- launch = { ... },
     })
   end,
 }
@@ -44,8 +44,9 @@ rebuilding the binary, run `:FroeRestart` so the plugin starts the new one.
 
 1. Open Neovim in the project: `cd your-project && nvim .`
 2. Nothing to load by hand: with no `model` set, froe routes each task to a
-   quick or a careful model and loads it itself (LM Studio). The output split
-   shows `⇢ careful → bonsai-27b-lmstudio (it asks for a count ...)`. To use one
+   quick or a careful model and loads it itself, when the runtime has a `load`
+   command in `runtimes.toml`. The output split shows which class, which model
+   and why, e.g. `⇢ careful → <model> (it asks for a count ...)`. To use one
    model for everything, `:FroeModel <id>`; `:FroeModel auto` goes back.
    `<leader>dl` (`:FroeLaunch`) still runs your `launch` command, if set.
 3. `<leader>dd` puts `:Froe ` on the command line. Type the task and press

@@ -1,8 +1,13 @@
 # Setting up froe on a new machine
 
 Steps to go from a bare machine to `froe` working in the terminal and in
-Neovim, with a local model served through LM Studio. Followed end-to-end on
-`tufa` (RTX 4060, 8 GB VRAM) 2026-09-12.
+Neovim, with a local model on an open-source runtime. The reference machine is
+a laptop with an RTX 4060 (8 GB VRAM) and 16 GB of RAM.
+
+> **In transition (2026-11).** [colibri](https://github.com/JustVugg/colibri) is
+> becoming the default runtime, replacing LM Studio, which is closed source.
+> Until that lands (see `docs/ROADMAP.md`), §4 describes llama.cpp and Ollama;
+> the LM Studio steps are kept at the end of §4 for anyone who already uses it.
 
 ---
 
@@ -42,9 +47,20 @@ other. `which froe` to check if unsure.)
 
 ## 4. Pick a model backend
 
-Froe talks OpenAI-compatible `/v1/chat/completions`, so any of Ollama,
-LM Studio, or llama.cpp work. LM Studio is the path for Bonsai (see
-`docs/MODELS.md` §5 for why). To set it up headless:
+Froe talks OpenAI-compatible `/v1/chat/completions`, so any runtime that
+serves it works. The open-source ones are the recommended path:
+
+- **llama.cpp** (`llama-server`): exposes GBNF grammars, so tool calls are
+  guaranteed well-formed. Start it with `--jinja` and an explicit `-c 8192`.
+- **Ollama**: lowest friction. Set `num_ctx` explicitly — the 4096 default
+  silently truncates longer prompts.
+
+```bash
+ollama pull qwen2.5-coder:1.5b    # the small model behind `froe commit`
+```
+
+**LM Studio (optional, closed source).** It works through the same adapter,
+headless:
 
 ```bash
 # LM Studio ships its own CLI at ~/.lmstudio/bin/lms
@@ -52,7 +68,7 @@ export PATH="$PATH:$HOME/.lmstudio/bin"   # add to ~/.bashrc too
 
 lms daemon up            # starts the llmster daemon, no GUI needed
 lms server status        # confirm it's listening on :1234
-lms get prism-ml/bonsai-27b -y --gguf   # pulls the plain Q1_0 build if not already local
+lms get <model> -y --gguf
 ```
 
 Load the model **with explicit flags** — LM Studio's auto-defaults pick
@@ -60,7 +76,7 @@ Load the model **with explicit flags** — LM Studio's auto-defaults pick
 interactive user doesn't need and costs both VRAM and per-request speed:
 
 ```bash
-lms load "prism-ml/bonsai-27b" --gpu max -c 8192 --parallel 1 --ttl 86400 -y
+lms load "<model>" --gpu max -c 8192 --parallel 1 --ttl 86400 -y
 ```
 
 Verify with `lms ps` — should read `PARALLEL 1`, `CONTEXT 8192`,
@@ -68,11 +84,6 @@ Verify with `lms ps` — should read `PARALLEL 1`, `CONTEXT 8192`,
 **re-check `lms ps` after any long idle period or reboot** — a plain
 `lms load` with no flags after that will silently regress to `parallel 4`.
 
-If you're on Ollama instead for a role (e.g. the small `fast`-role model):
-
-```bash
-ollama pull qwen2.5-coder:1.5b
-```
 
 ## 5. Machine profile
 
@@ -90,13 +101,13 @@ threads = <from `froe doctor`>
 
 [roles]
 fast  = "qwen2.5-coder:1.5b"     # commit messages, classification
-main  = "bonsai-27b-lmstudio"    # everyday editing, if VRAM allows
-heavy = "bonsai-27b-lmstudio"    # multi-file reasoning
+main  = "<id from froe doctor>"  # everyday editing
+heavy = "<id from froe doctor>"  # multi-file reasoning
 ```
 
 Run `froe doctor` first — it prints exactly these hardware numbers and a
 fit table telling you which registry models this box can actually run.
-Model IDs (`bonsai-27b-lmstudio`, etc.) come from
+Model IDs come from
 `internal/registry/defaults/models.toml` — don't invent new ones for an
 existing model, reuse the id doctor already lists.
 
@@ -104,7 +115,7 @@ Sanity-check:
 
 ```bash
 froe doctor                       # confirm the profile is picked up
-froe ask -model bonsai-27b-lmstudio "one sentence: what is a goroutine?"
+froe ask -model <id> "one sentence: what is a goroutine?"
 ```
 
 The output line (`N→M tokens (R reasoning) · X tok/s · ttft Ys · total Zs`)
@@ -141,7 +152,7 @@ return {
     vim.opt.runtimepath:append(plugin.dir .. "/nvim")
     require("froe").setup({
       cmd = "froe",
-      model = "bonsai-27b-lmstudio",  -- or "" to let the router pick per-task
+      model = "",                     -- "" lets the router pick per task, or pin a registry id
       mode = "ask",                   -- "ask" | "accept-edits" | "yolo"
       show_reasoning = false,
     })
@@ -172,5 +183,5 @@ the reasoning — quantisation class and prefill dominate, not raw params):
 
 - `froe doctor`'s fit table — which registry models actually run here
 - a real `froe ask` timing, not the doctor's `~peak` estimate
-- GPU offload — confirm the model is fully VRAM-resident (`lms ps`, or
-  `nvidia-smi` during a generation) rather than partially spilling to CPU
+- GPU offload — confirm how much of the model is on the GPU (`nvidia-smi`
+  during a generation) rather than assuming it
