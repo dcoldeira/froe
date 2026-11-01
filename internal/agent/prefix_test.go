@@ -160,3 +160,67 @@ func TestFitContextUsesTheServedWindow(t *testing.T) {
 		t.Fatal("a result larger than the served window was kept")
 	}
 }
+
+// A tool call that arrives as text (the backend did not recognise it) is sent
+// back once instead of ending the run as its answer. Eval task 06 on colibri,
+// 2026-11-01: "<function=read_file>...</tool_call>" with no opening tag ended
+// 3 runs of 3 after one turn.
+func TestLeakedToolCallIsAskedAgain(t *testing.T) {
+	leaked := "Let me look.\n\n<function=read_file>\n<parameter=path>\na.txt\n</parameter>\n</function>\n</tool_call>"
+	p := &recording{scripted: scripted{replies: []reply{
+		{text: leaked},
+		{call: readCall("r1", "a.txt")},
+		{text: "a.txt says hello"},
+	}}}
+	a := newTestAgent(t, p)
+	a.PrefixReuse = true
+	var final string
+	for ev := range a.Run(context.Background(), "what does a.txt say?") {
+		if ev.Kind == KindError {
+			t.Fatalf("run failed: %v", ev.Err)
+		}
+		if ev.Kind == KindDone {
+			final = ev.Text
+		}
+	}
+	if len(p.sent) != 3 {
+		t.Fatalf("%d requests, want 3: leaked call, real call, answer", len(p.sent))
+	}
+	if got := lastUser(p.sent[1]); got != leakedCallHint {
+		t.Errorf("second request's last user message = %q, want the leaked-call hint", got)
+	}
+	if final != "a.txt says hello" {
+		t.Errorf("final answer = %q", final)
+	}
+	for i := 1; i < len(p.sent); i++ {
+		if ok, at := extends(p.sent[i-1], p.sent[i]); !ok {
+			t.Fatalf("request %d does not extend request %d (message %d)", i+1, i, at)
+		}
+	}
+}
+
+// Retries are bounded: a model that only ever writes calls as text ends the
+// run after maxFormatRetries re-asks rather than looping.
+func TestLeakedToolCallRetriesAreBounded(t *testing.T) {
+	leaked := "<tool_call>\n<function=read_file>\n</function>\n</tool_call>"
+	replies := make([]reply, maxLeakedRetries+3)
+	for i := range replies {
+		replies[i] = reply{text: leaked}
+	}
+	p := &recording{scripted: scripted{replies: replies}}
+	a := newTestAgent(t, p)
+	for range a.Run(context.Background(), "read a.txt") {
+	}
+	if want := maxLeakedRetries + 1; len(p.sent) != want {
+		t.Fatalf("%d requests, want %d", len(p.sent), want)
+	}
+}
+
+// Plain prose that merely mentions a function is not a leaked call.
+func TestLeakedToolCallNeedsMarkup(t *testing.T) {
+	for _, s := range []string{"The function read_file returns the text.", "func f() {}", ""} {
+		if leakedToolCall(s) {
+			t.Errorf("%q was taken for a leaked call", s)
+		}
+	}
+}

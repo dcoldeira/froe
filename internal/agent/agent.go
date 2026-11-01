@@ -366,6 +366,9 @@ func (a *Agent) run(ctx context.Context, task string, images []provider.ImageCon
 	// evidenceNudged keeps the "you answered without looking" push to once.
 	evidenceNudged := false
 	formatRetries, formatHint := 0, ""
+	// leakedRetries counts turns re-asked because a tool call came back as
+	// text. Its own budget: see maxLeakedRetries.
+	leakedRetries := 0
 
 	a.transcript = nil
 
@@ -541,6 +544,27 @@ func (a *Agent) run(ctx context.Context, task string, images []provider.ImageCon
 				continue
 			}
 			answer, calls = clean, parsed
+		}
+
+		if len(calls) == 0 && !useReact && !useGrammar && leakedRetries < maxLeakedRetries &&
+			turn < maxTurns && leakedToolCall(answer) {
+			// The call arrived as text the backend did not recognise, so
+			// nothing ran and, without this, the run would end on it as if it
+			// were the answer. Measured 2026-11-01 on eval task 06,
+			// qwen3-coder-30b on colibri: "<function=read_file>...</tool_call>"
+			// with the opening <tool_call> missing, 3 runs of 3, each ending
+			// after one turn and no tool call. Both messages are appended, so
+			// the history only grows (PrefixReuse).
+			leakedRetries++
+			m.ToolErrors++
+			done := provider.Message{Role: provider.RoleAssistant, Content: answer}
+			push := provider.Message{Role: provider.RoleUser, Content: leakedCallHint}
+			msgs = append(msgs, done, push)
+			a.transcript = append(a.transcript, done, push)
+			if !emit(Event{Kind: KindToolResult, Tool: "(retry)", Result: "tool call written as text; asked again"}) {
+				return
+			}
+			continue
 		}
 
 		if len(calls) == 0 && a.ApplyEdits && !applyNudged && len(m.FilesChanged) == 0 &&
@@ -842,6 +866,35 @@ const maxFormatRetries = 2
 
 const formatRetryHint = "Your last reply could not be read: the tool call in it was not valid JSON. " +
 	"Send it again as one tool call whose arguments are a single complete JSON object."
+
+// maxLeakedRetries bounds re-asks after a tool call comes back as text. It is
+// larger than maxFormatRetries because the re-ask is cheap and works: the
+// history only grows, so a runtime with prefix reuse reads just the new turn,
+// and the next call is usually a real one. Measured 2026-11-01, eval task 06,
+// qwen3-coder-30b on colibri: each re-ask was followed by a real call, but one
+// run wrote calls as text three times and ended at the old shared limit of 2.
+// Reading the leaked call instead would make the history differ from what the
+// model generated, and colibri would then read the whole prompt again.
+const maxLeakedRetries = 5
+
+// leakedCallHint answers a reply whose tool call came through as plain text.
+const leakedCallHint = "Your last reply wrote a tool call as text, so it was not run and nothing happened. " +
+	"Make the call again as a real tool call, in the tool-call format, with nothing else around it."
+
+// leakedCallMarkers are the pieces of a native tool call that never belong in a
+// plain answer. A reply that has one and no parsed call holds a call the
+// backend failed to recognise.
+var leakedCallMarkers = []string{"<tool_call>", "</tool_call>", "<function=", "[TOOL_CALLS]"}
+
+// leakedToolCall reports whether text carries tool-call markup.
+func leakedToolCall(text string) bool {
+	for _, m := range leakedCallMarkers {
+		if strings.Contains(text, m) {
+			return true
+		}
+	}
+	return false
+}
 
 // applyNudge is sent when a run that must change files ends having only shown
 // the change. Measured 2026-09-25: ministral-3:8b answered 03-add-function

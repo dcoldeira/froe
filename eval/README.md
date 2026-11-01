@@ -79,7 +79,48 @@ pass count.
 
 ## Latest results
 
-2026-09-25. Same froe build for every row, 8K context, 3 runs per task, 120 s
+### colibri (2026-11-01)
+
+The first run on an open-source runtime. Qwen3-Coder-30B-A3B (Q4_K_M GGUF) on
+[colibri](https://github.com/JustVugg/colibri) v2.1.0, CUDA build, 8K context,
+`COLI_PARK=0`, 3 runs per task, on an RTX 4060 8 GB laptop with 16 GB RAM.
+`FIRST_TURN_ALLOWANCE=180`: colibri reads the first prompt of a run cold (50-150 s
+here) and every later turn reads only what is new, so the 120 s bar applies to
+the turns after the first. Not comparable one-to-one with the table below, which
+had no allowance.
+
+| Task | Score | Median secs (first turn) | Failure |
+|---|---|---|---|
+| 01-fix-panic | 0/3 | 260 (53) | fixes it, then keeps calling tools instead of stopping |
+| 02-find-symbol | 3/3 | 65 | |
+| 03-add-function | 3/3 | 113 (52) | |
+| 04-git-history | 3/3 | 52 (48) | |
+| 05-multi-file | 3/3 | 87 (48) | |
+| 06-wrong-path | 2/3 | 223 (102) | one timeout |
+| 07-multi-site | 0/3 | 300 | timeouts: four edit sites at ~5 tok/s |
+| 08-large-file | 3/3 | 107 (61) | |
+| 09-locate-wrong-path | 1/3 | 111 (101) | answers in one turn from the pre-search, at the wrong place |
+| 10-locate-real-shape | 0/3 | 87 | same |
+| **total** | **18/30** | | |
+
+06 is the rerun with the leaked-call retry (it was 0/3 in the suite run, every
+run ending on a tool call written as text); the other rows are the suite run.
+That morning the same model and laptop scored 0: froe re-sent a rewritten
+history every turn, and colibri read the whole prompt again each time. What
+changed it, in `docs/ROADMAP.md` ("colibri as the default runtime"): an
+append-only history under `prefix_reuse`, a colibri fix for a one-newline
+mismatch in tool-call turns
+([JustVugg/colibri#2535](https://github.com/JustVugg/colibri/pull/2535)), and
+`COLI_PARK=0`.
+
+- **Speed is the limit on this laptop, not reuse.** Generation is ~5 tok/s:
+  most experts do not fit in 8 GB of VRAM and run on the CPU. 07 runs out of
+  time; a machine with more VRAM and RAM is a different picture.
+- **01 and 09-10 are the model's behaviour**, not the runtime's.
+
+### LM Studio and Ollama (2026-09-25)
+
+Same froe build for every row, 8K context, 3 runs per task, 120 s
 bar, on an RTX 4060 8 GB laptop with 15 GB RAM.
 
 | Model | Runtime | Score | Suite time |
