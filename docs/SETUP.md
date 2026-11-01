@@ -71,12 +71,18 @@ froe-colibri --model ~/colibri-models/qwen3-coder-30b-gguf               # foreg
 froe-colibri --model ~/colibri-models/qwen3-coder-30b-gguf --background  # detached; returns when ready
 ```
 
-`--background` is what Neovim's `<leader>dl` should run (§6): it does nothing if
-the model is already serving, and logs to `~/.cache/froe/colibri.log`. If port
+**You rarely need to run it yourself.** When colibri is down, froe starts it with
+`froe-colibri --background` before the first request (the runtime's `start`
+command, using the model's `path` from the registry) and says so on stderr; in
+Neovim that line is a notification. `--background` does nothing if the model is
+already serving, and logs to `~/.cache/froe/colibri.log`. Neovim's `<leader>dl`
+can run it too, to start colibri ahead of time (§6). If port
 8000 is taken, pass `--port` and set the same `base_url` under
 `[runtime.colibri]` in `~/.config/froe/runtimes.toml`. An entry there replaces
 the shipped one outright, so copy every field, including `serves_one = true`
-and `prefix_reuse = true`.
+`prefix_reuse = true` and the `start` line. The model's location is its `path`
+in the registry (`~/colibri-models/qwen3-coder-30b-gguf` for the default);
+override it in `~/.config/froe/models.toml` if yours is elsewhere.
 
 Check it: `froe doctor` should list colibri as running and the model as
 `serving`.

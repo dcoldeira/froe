@@ -71,6 +71,9 @@ Done:
 To do:
 - ~~`[runtime.colibri]` and registry entries~~ Done: Qwen3-Coder-30B-A3B and
   Flint 40B-A2.5B, with measured speeds.
+- ~~Start colibri when it is down~~ Done 2026-11-01: the runtime's `start`
+  command (`froe-colibri --background`) runs before falling back to another
+  local model, from the CLI and Neovim alike.
 - A `load` command that restarts `coli serve` on another model.
 - A warm project session: one long conversation per project on its own KV slot
   (`--kv-slots`, `cache_slot`), each command a new turn, so the preamble is

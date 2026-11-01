@@ -73,6 +73,11 @@ type Runtime struct {
 	// it otherwise (colibri). froe then keeps a run's history append-only, so
 	// each turn pays only for what is new.
 	PrefixReuse bool `toml:"prefix_reuse"`
+	// Start brings a runtime that is down up, serving one model, and returns
+	// once it answers. "{model}" is the model's ServeID, "{path}" its Path,
+	// "{port}" the port of BaseURL. Unlike Load it never runs against a
+	// runtime that is already up. Empty means froe cannot start it.
+	Start []string `toml:"start"`
 }
 
 // Hosted reports whether this runtime executes somewhere else. The signal is
@@ -91,7 +96,10 @@ type Model struct {
 	// the id froe uses. LM Studio serves what we call "bonsai-27b-lmstudio"
 	// under "prism-ml/bonsai-27b"; without the distinction, presence checks
 	// report a loaded model as missing. Empty means the two are the same.
-	RuntimeID    string       `toml:"runtime_id"`
+	RuntimeID string `toml:"runtime_id"`
+	// Path is where the model lives on disk, for a runtime whose Start
+	// command takes it ("{path}"). A leading ~ is the home directory.
+	Path         string       `toml:"path"`
 	Runtime      string       `toml:"runtime"`
 	ParamsB      float64      `toml:"params_b"`
 	Quant        string       `toml:"quant"`

@@ -7,10 +7,12 @@ package resolve
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"os/exec"
 	"sort"
 	"strings"
 
+	"github.com/dcoldeira/froe/internal/config"
 	"github.com/dcoldeira/froe/internal/probe"
 	"github.com/dcoldeira/froe/internal/registry"
 )
@@ -69,6 +71,18 @@ func PickWithPreference(ctx context.Context, cat *registry.Catalogue, id string,
 	up := func(rt string) bool { return probes[rt].OK }
 	hosted := func(rt string) bool { return cat.Runtimes[rt].Hosted() }
 
+	// The model the preference names, if every runtime were up. When its
+	// runtime is down and froe knows how to start it, start it before falling
+	// back to another local model: a fallback is a different model, picked
+	// silently. Found 2026-11-01: with colibri down and Ollama up, the default
+	// went to an Ollama model and nothing said why.
+	if want, found := ChooseByRole(models, pref, func(string) bool { return true }, hosted); found &&
+		!probes[want.Runtime].OK && len(cat.Runtimes[want.Runtime].Start) > 0 {
+		if rt := cat.Runtimes[want.Runtime]; wake(ctx, rt, want) {
+			return Choice{Model: want, Runtime: rt}, nil
+		}
+	}
+
 	m, ok := ChooseByRole(models, pref, up, hosted)
 	if want, leaves := leavesMachine(models, pref, cat.Runtimes, m, ok); leaves {
 		// The local model meant for this is down. Wake its runtime rather than
@@ -116,17 +130,45 @@ func leavesMachine(models []registry.Model, pref []string, runtimes map[string]r
 	return want, true
 }
 
-// wake runs a down runtime's load command for m and reports whether the
-// runtime then answers. LM Studio's service sleeps when idle, and lms wakes it.
+// Starting, when set, is told before froe starts a runtime that is down, so
+// the user sees why the command is waiting: a cold colibri start reads a
+// model from disk. main sets it to a line on stderr, which Neovim shows too.
+var Starting func(runtime, model string, argv []string)
+
+// wake brings a down runtime up for m and reports whether it then answers:
+// its start command when it has one (colibri, through froe-colibri), else
+// its load command (LM Studio's service sleeps when idle, and lms wakes it).
 func wake(ctx context.Context, rt registry.Runtime, m registry.Model) bool {
-	if len(rt.Load) == 0 {
+	var argv []string
+	switch {
+	case len(rt.Start) > 0:
+		argv = StartCommand(rt, m)
+		if Starting != nil {
+			Starting(rt.Name, m.ID, argv)
+		}
+	case len(rt.Load) > 0:
+		argv = LoadCommand(rt.Load, m.ServeID())
+	default:
 		return false
 	}
-	argv := LoadCommand(rt.Load, m.ServeID())
 	if err := exec.CommandContext(ctx, argv[0], argv[1:]...).Run(); err != nil {
 		return false
 	}
 	return probe.Runtime(ctx, rt).OK
+}
+
+// StartCommand fills a runtime's start template for m.
+func StartCommand(rt registry.Runtime, m registry.Model) []string {
+	port := ""
+	if u, err := url.Parse(rt.BaseURL); err == nil {
+		port = u.Port()
+	}
+	r := strings.NewReplacer("{model}", m.ServeID(), "{path}", config.ExpandUser(m.Path), "{port}", port)
+	argv := make([]string, len(rt.Start))
+	for i, a := range rt.Start {
+		argv[i] = r.Replace(a)
+	}
+	return argv
 }
 
 // pulled drops models a running local runtime reports it does not have.

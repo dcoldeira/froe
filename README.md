@@ -137,8 +137,8 @@ closed binary, so it is supported rather than recommended.
 is open source, runs large mixture-of-experts models on ordinary machines by
 streaming experts from disk, and reads a prompt it has seen before almost for
 free. Froe is built around that: with `prefix_reuse` set (it is, for colibri) the
-conversation only ever grows, so each turn costs only what is new. Start it with
-`froe-colibri`, installed next to froe:
+conversation only ever grows, so each turn costs only what is new. When colibri is down, froe starts it before the first request, from the terminal
+or from Neovim, with `froe-colibri`, installed next to froe:
 
 ```bash
 froe-colibri --model <model dir> --background   # returns once the model answers

@@ -1,6 +1,5 @@
-// Command froe is a local-first agentic coding CLI.
-//
-// Only `doctor` exists so far — see docs/ROADMAP.md.
+// Command froe is a local-first agentic coding CLI: the terminal client, and
+// the binary the Neovim plugin drives over JSON-RPC (`froe rpc`).
 package main
 
 import (
@@ -11,6 +10,7 @@ import (
 	"os/signal"
 
 	"github.com/dcoldeira/froe/internal/doctor"
+	"github.com/dcoldeira/froe/internal/resolve"
 )
 
 // version is overridden at build time with -ldflags "-X main.version=...".
@@ -37,6 +37,13 @@ docs: https://github.com/dcoldeira/froe
 `
 
 func main() {
+	// A runtime froe starts can take a while (a cold colibri reads its model
+	// from disk); say so instead of sitting silent. In Neovim, stderr shows as
+	// a notification.
+	resolve.Starting = func(runtime, model string, argv []string) {
+		fmt.Fprintf(os.Stderr, "froe: %s is not running - starting it for %s (%s); a cold start can take a minute\n",
+			runtime, model, argv[0])
+	}
 	if err := run(os.Args[1:]); err != nil {
 		fmt.Fprintln(os.Stderr, "froe:", err)
 		os.Exit(1)

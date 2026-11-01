@@ -34,6 +34,9 @@ grammar  = "no"            # its GBNF only drafts tokens for speed; it never con
 managed  = true
 serves_one = true          # /v1/models lists the one model being served
 prefix_reuse = true        # a turn that extends the held conversation reads only what is new
+# Down when froe needs it: froe-colibri starts it (COLI_PARK=0, the GPU
+# backend) and returns once the model answers. The model's `path` says where.
+start    = ["froe-colibri", "--background", "--model", "{path}", "--model-id", "{model}", "--port", "{port}"]
 notes    = "Open source (Apache 2.0), github.com/JustVugg/colibri. Start with: COLI_PARK=0 coli serve --model <dir> --model-id <runtime_id> --auto-tier --ctx 8192. COLI_PARK=0 matters: otherwise a new task shorter than the held conversation is treated as a side question, the old conversation is kept, and the new one is re-read on every turn. One model per server, so there is no load command and routing stays on the served model. Reports its window at /v1/models (context_length). Port 8000 is its default; move it with --port and a base_url overlay."
 
 [runtime.lmstudio]
