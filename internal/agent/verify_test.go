@@ -30,8 +30,11 @@ func (s *scripted) Chat(ctx context.Context, req provider.Request) (<-chan provi
 	if n := len(s.seen) - 1; n < len(s.replies) {
 		r = s.replies[n]
 	}
-	ch := make(chan provider.Event, 3)
+	ch := make(chan provider.Event, 4)
 	if r.call != nil {
+		if r.text != "" {
+			ch <- provider.Event{Kind: provider.KindText, Text: r.text}
+		}
 		c := *r.call
 		ch <- provider.Event{Kind: provider.KindToolCall, ToolCall: &c}
 	} else {
@@ -186,5 +189,63 @@ func TestAsksForCheck(t *testing.T) {
 		if got := asksForCheck(task); got != want {
 			t.Errorf("asksForCheck(%q) = %v, want %v", task, got, want)
 		}
+	}
+}
+
+var failCall = &provider.ToolCall{ID: "f1", Name: "bash", Arguments: `{"command":"false"}`}
+
+// Eval task 01, 2026-11-01: fixed, tested green, then "The task is complete."
+// with another look every turn until the stuck detector ended the run. With
+// the change checked and passing, the claim ends the run.
+func TestDoneAfterAPassingCheckEndsTheRun(t *testing.T) {
+	p, _ := runScript(t, "Change hello to bye. The tests must still pass.",
+		reply{call: editCall},
+		reply{call: bashCall},
+		reply{text: "The task is complete.", call: readCall("r1", "a.txt")},
+		reply{text: "should never be asked"},
+	)
+	if len(p.seen) != 3 {
+		t.Fatalf("%d requests, want 3: the done claim after a passing check ends the run", len(p.seen))
+	}
+}
+
+// A failing check is not finished, whatever the model says.
+func TestDoneAfterAFailingCheckContinues(t *testing.T) {
+	p, _ := runScript(t, "Change hello to bye. The tests must still pass.",
+		reply{call: editCall},
+		reply{call: failCall},
+		reply{text: "The task is complete.", call: readCall("r1", "a.txt")},
+		reply{text: "it fails; looking again"},
+	)
+	if len(p.seen) != 4 {
+		t.Fatalf("%d requests, want 4: a failing check must not end the run", len(p.seen))
+	}
+}
+
+// Nothing checked since the edit: the claim alone is not enough.
+func TestDoneWithoutACheckContinues(t *testing.T) {
+	p, _ := runScript(t, "Change hello to bye.",
+		reply{call: editCall},
+		reply{text: "The task is complete.", call: readCall("r1", "a.txt")},
+		reply{text: "done"},
+	)
+	if len(p.seen) != 3 {
+		t.Fatalf("%d requests, want 3: an unchecked edit must not end the run early", len(p.seen))
+	}
+}
+
+// Another edit means more to change: the claim does not cut it off.
+func TestDoneWithAnEditContinues(t *testing.T) {
+	edit2 := &provider.ToolCall{ID: "e2", Name: "edit_file",
+		Arguments: `{"path":"a.txt","old_string":"bye","new_string":"ciao"}`}
+	p, _ := runScript(t, "Change hello to bye, then to ciao. The tests must still pass.",
+		reply{call: editCall},
+		reply{call: bashCall},
+		reply{text: "The task is complete.", call: edit2},
+		reply{call: bashCall},
+		reply{text: "done"},
+	)
+	if len(p.seen) != 5 {
+		t.Fatalf("%d requests, want 5: an edit after the claim must run", len(p.seen))
 	}
 }

@@ -347,6 +347,10 @@ func (a *Agent) run(ctx context.Context, task string, images []provider.ImageCon
 	// had replaced a header with "" and called it finished; a single run of the
 	// module would have shown it. checkNudged keeps the push to once per run.
 	editedSinceCheck, checkNudged := false, false
+	// lastCheckPassed is true when the last command run after the last edit
+	// exited 0. With editedSinceCheck false it means the change was checked
+	// and the check passed.
+	lastCheckPassed := false
 
 	// terms is what this run is changing, for the leftover check at the end:
 	// see leftovers.go. Seeded from the task's own quoted phrases.
@@ -567,6 +571,23 @@ func (a *Agent) run(ctx context.Context, task string, images []provider.ImageCon
 			continue
 		}
 
+		if len(calls) > 0 && len(m.FilesChanged) > 0 && !editedSinceCheck &&
+			lastCheckPassed && claimsDone(answer) && a.onlyRechecks(calls) {
+			// It says it is finished, the change is on disk and the check that
+			// ran after it passed, and all it asks for is another look. Take
+			// it at its word, which the facts back, and finish below: the
+			// leftover, checklist and verify passes still run. Measured
+			// 2026-11-01 on eval task 01, qwen3-coder-30b on colibri: fixed,
+			// tested green, then "The task is complete." with another
+			// read_file or git_log every turn until the stuck detector ended
+			// it, 3 runs of 3.
+			if !emit(Event{Kind: KindToolResult, Tool: "(done)",
+				Result: fmt.Sprintf("finished: checked and passing; %d further look(s) not run", len(calls))}) {
+				return
+			}
+			calls = nil
+		}
+
 		if len(calls) == 0 && a.ApplyEdits && !applyNudged && len(m.FilesChanged) == 0 &&
 			turn < maxTurns && showsCode(answer, task) && a.canRun("edit_file") {
 			// The answer holds the change as a code block and no file was
@@ -754,9 +775,15 @@ func (a *Agent) run(ctx context.Context, task string, images []provider.ImageCon
 				// non-zero exit, which bash reports as output, not as denial.
 				if call.Name == "bash" {
 					editedSinceCheck = false
+					// A repeat is answered with a note, not a run: the earlier
+					// result still stands.
+					if !strings.HasPrefix(result, "(identical to a call") {
+						lastCheckPassed = !strings.HasPrefix(result, "exit status ")
+					}
 				} else if callPath(call.Arguments) != "" {
 					if t, ok := a.Tools.Get(call.Name); ok && t.Mutating() {
 						editedSinceCheck = true
+						lastCheckPassed = false
 					}
 				}
 			}
@@ -876,6 +903,37 @@ const formatRetryHint = "Your last reply could not be read: the tool call in it 
 // Reading the leaked call instead would make the history differ from what the
 // model generated, and colibri would then read the whole prompt again.
 const maxLeakedRetries = 5
+
+// doneClaims are what a model writes when it considers the task finished.
+// Deliberately narrow: "fixed" or "tests pass" can describe one step of many.
+var doneClaims = []string{"task is complete", "task is now complete", "task has been completed",
+	"task is done", "task is finished", "task has been finished"}
+
+// claimsDone reports whether text declares the whole task finished.
+func claimsDone(text string) bool {
+	t := strings.ToLower(text)
+	for _, c := range doneClaims {
+		if strings.Contains(t, c) {
+			return true
+		}
+	}
+	return false
+}
+
+// onlyRechecks reports whether every call only looks or re-runs a command:
+// read-only tools, or bash. An edit means the model has more to change.
+func (a *Agent) onlyRechecks(calls []provider.ToolCall) bool {
+	for _, c := range calls {
+		if c.Name == "bash" {
+			continue
+		}
+		t, ok := a.Tools.Get(c.Name)
+		if !ok || t.Mutating() {
+			return false
+		}
+	}
+	return true
+}
 
 // leakedCallHint answers a reply whose tool call came through as plain text.
 const leakedCallHint = "Your last reply wrote a tool call as text, so it was not run and nothing happened. " +
