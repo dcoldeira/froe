@@ -31,6 +31,13 @@ ONLY="${ONLY:-}"
 # hours. 120s is the bar a model has to clear to be worth using at all - a
 # capable one does these tasks in 1-20s (qwen3-nothink:8b, 2026-09-24).
 TIMEOUT="${TIMEOUT:-120}"
+# Extra seconds for the FIRST turn only, for a runtime that reuses the prompt it
+# already holds (colibri): its first turn reads the whole preamble cold and every
+# later turn reads only what is new. Measured 2026-11-01 on task 01: ~95 s for
+# the first turn, ~25 s for the four after it. With an allowance, the run is
+# killed at TIMEOUT + FIRST_TURN_ALLOWANCE, and passes only if the turns after
+# the first fit in TIMEOUT. 0 (the default) keeps the plain TIMEOUT rule.
+FIRST_TURN_ALLOWANCE="${FIRST_TURN_ALLOWANCE:-0}"
 WORK="$(mktemp -d)"
 RESULTS="$WORK/results.tsv"
 TASKS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/tasks" && pwd)"
@@ -38,7 +45,7 @@ TASKS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/tasks" && pwd)"
 model_arg=()
 [ -n "$MODEL" ] && model_arg=(-model "$MODEL")
 
-printf 'task\tpassed\trate\tsecs(med)\tturns(med)\tfailure modes\n' > "$RESULTS"
+printf 'task\tpassed\trate\tsecs(med)\tfirst(med)\tturns(med)\tfailure modes\n' > "$RESULTS"
 
 # classify turns a run's output into WHY it failed, so a change that converts
 # context overflows into clean stuck-aborts is visible as progress rather than
@@ -90,7 +97,7 @@ for task_dir in "$TASKS_DIR"/*/; do
   echo "── $name ($cmd)"
 
   passed=0
-  secs_all=""; turns_all=""; modes=""
+  secs_all=""; first_all=""; turns_all=""; modes=""
 
   for run in $(seq 1 "$REPEATS"); do
     sandbox="$WORK/$name/run$run"
@@ -115,28 +122,46 @@ for task_dir in "$TASKS_DIR"/*/; do
     fi
 
     start=$(date +%s)
-    out="$( cd "$sandbox" && timeout "$TIMEOUT" "$FROE" "${argv[@]}" "$prompt" 2>&1 )"
+    limit=$(( TIMEOUT + FIRST_TURN_ALLOWANCE ))
+    out="$( cd "$sandbox" && timeout "$limit" "$FROE" "${argv[@]}" "$prompt" 2>&1 )"
     rc=$?
     secs=$(( $(date +%s) - start ))
-    [ "$rc" = 124 ] && out="$out"$'\n'"froe-eval: timed out after ${TIMEOUT}s"
+    [ "$rc" = 124 ] && out="$out"$'\n'"froe-eval: timed out after ${limit}s"
 
     turns=$(printf '%s' "$out" | grep -oE '[0-9]+ turns' | tail -1 | grep -oE '[0-9]+' || echo 0)
+    # froe reports "(first turn N.Ns)" on a run of more than one turn.
+    first=$(printf '%s' "$out" | grep -oE 'first turn [0-9]+' | tail -1 | grep -oE '[0-9]+' || true)
+    first=${first:-0}
     printf '%s' "$out" > "$sandbox/.froe-output.txt"
 
-    if [ "$rc" != 124 ] && ( cd "$sandbox" && bash "$task_dir/verify.sh" "$sandbox/.froe-output.txt" >/dev/null 2>&1 ); then
+    # Under an allowance the first turn is exempt, up to the allowance; the
+    # rest of the run must fit the plain TIMEOUT.
+    slow=0
+    if [ "$FIRST_TURN_ALLOWANCE" -gt 0 ] && [ "$rc" != 124 ]; then
+      exempt=$(( first < FIRST_TURN_ALLOWANCE ? first : FIRST_TURN_ALLOWANCE ))
+      [ $(( secs - exempt )) -gt "$TIMEOUT" ] && slow=1
+    fi
+
+    if [ "$rc" != 124 ] && [ "$slow" = 0 ] && ( cd "$sandbox" && bash "$task_dir/verify.sh" "$sandbox/.froe-output.txt" >/dev/null 2>&1 ); then
       result=PASS
       passed=$(( passed + 1 ))
     else
       result=FAIL
-      modes="$modes $(classify "$sandbox/.froe-output.txt")"
+      if [ "$slow" = 1 ]; then
+        modes="$modes too-slow"
+      else
+        modes="$modes $(classify "$sandbox/.froe-output.txt")"
+      fi
     fi
 
     secs_all="$secs_all$secs"$'\n'
+    first_all="$first_all$first"$'\n'
     turns_all="$turns_all$turns"$'\n'
-    echo "   run $run/$REPEATS  $result  ${secs}s  ${turns} turns"
+    echo "   run $run/$REPEATS  $result  ${secs}s (first turn ${first}s)  ${turns} turns"
   done
 
   med_secs=$(printf '%s' "$secs_all" | grep -v '^$' | median)
+  med_first=$(printf '%s' "$first_all" | grep -v '^$' | median)
   med_turns=$(printf '%s' "$turns_all" | grep -v '^$' | median)
   mode_summary=$(printf '%s' "$modes" | tr ' ' '\n' | grep -v '^$' | sort | uniq -c \
                  | awk '{printf "%sx%s ", $1, $2}')
@@ -146,9 +171,9 @@ for task_dir in "$TASKS_DIR"/*/; do
   total_runs=$(( total_runs + REPEATS ))
 
   echo "   => $passed/$REPEATS"
-  printf '%s\t%s/%s\t%s%%\t%s\t%s\t%s\n' \
+  printf '%s\t%s/%s\t%s%%\t%s\t%s\t%s\t%s\n' \
     "$name" "$passed" "$REPEATS" "$(( passed * 100 / REPEATS ))" \
-    "$med_secs" "$med_turns" "$mode_summary" >> "$RESULTS"
+    "$med_secs" "$med_first" "$med_turns" "$mode_summary" >> "$RESULTS"
 done
 
 echo
@@ -156,7 +181,7 @@ echo "════════════════════════�
 column -t -s$'\t' "$RESULTS"
 echo "════════════════════════════════════════════════════"
 echo "  ${total_passed}/${total_runs} runs passed   (${REPEATS} repeats per task)"
-echo "  model: ${MODEL:-auto}   mode: $MODE   max-turns: $TURNS   timeout: ${TIMEOUT}s"
+echo "  model: ${MODEL:-auto}   mode: $MODE   max-turns: $TURNS   timeout: ${TIMEOUT}s   first-turn allowance: ${FIRST_TURN_ALLOWANCE}s"
 wall=$(( $(date +%s) - suite_start ))
 printf '  wall time: %dm%02ds   (started %s)\n' $(( wall / 60 )) $(( wall % 60 )) "$(date -d @"$suite_start" '+%F %T')"
 echo "  artefacts: $WORK"

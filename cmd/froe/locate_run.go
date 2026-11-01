@@ -164,6 +164,8 @@ func locate(ctx context.Context, o locateOpts) (*locateResult, error) {
 		Gate:                perms.NewGate(perms.ModeYolo),
 		Env:                 tools.Env{Root: o.Root, Project: projectRoot},
 		MaxToolResultTokens: window / 4,
+		ContextWindow:       window,
+		PrefixReuse:         choice.Runtime.PrefixReuse,
 		MaxTurns:            o.MaxTurns,
 		System:              locateSystem,
 		Context:             projectCtx,

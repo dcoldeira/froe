@@ -207,6 +207,39 @@ tool_strategy = "native"
 vision        = true
 roles         = ["main"]
 
+# ── colibri ─────────────────────────────────────────────────────────────────
+# Mixture-of-experts models with the experts streamed from disk: RAM holds the
+# active part, so size_gb (the file on disk) can exceed RAM. peak_mb is what the
+# engine held with --auto-tier on the reference laptop (RTX 4060 8 GB, 16 GB
+# RAM), measured 2026-11-01: 6.8 GB resident in RAM plus 7.1 GB of VRAM.
+# --auto-tier sizes itself to the machine, so the figure is per machine.
+# Import a GGUF with: coli import <file.gguf>
+[[model]]
+id            = "qwen3-coder-30b-colibri"
+runtime_id    = "qwen3-coder-30b"   # coli serve --model-id qwen3-coder-30b
+runtime       = "colibri"
+params_b      = 30.5                # 3.3B active per token
+quant         = "Q4_K_M"
+size_gb       = 18.6
+peak_mb       = 13900
+peak_ctx      = 8192
+ctx_max       = 262144
+tool_strategy = "native"
+roles         = ["main"]
+notes         = "Qwen3-Coder-30B-A3B-Instruct GGUF (lmstudio-community Q4_K_M) on colibri's Qwen3.6 engine. MEASURED 2026-11-01 on the reference laptop, Vulkan: native tool call correct; ~5 tok/s generation, ~50 tok/s prefill. CUDA build: ~5.4 tok/s, ~22 tok/s prefill. Eval 01-fix-panic 0/3 (3 timeouts, no turn finished). Limit is RAM+VRAM, not the backend: ~1950 of 6144 experts fit on the card and ~130 ms a token goes to experts on the CPU. Needs a machine with more memory."
+
+[[model]]
+id            = "flint-colibri"
+runtime_id    = "flint"             # coli serve --model-id flint
+runtime       = "colibri"
+params_b      = 40
+quant         = "UD-Q3_K_XL"
+size_gb       = 18.5
+ctx_max       = 262144
+tool_strategy = "native"
+roles         = []
+notes         = "RecursiveSI Flint, 40B MoE with 2.5B active, Apache 2.0; unsloth GGUF on colibri's Qwen3.6 engine. No thinking switch: the model reasons when it decides to. MEASURED 2026-11-01 on the reference laptop, Vulkan: native tool call correct; ~6 tok/s generation. CUDA build: ~6.5 tok/s, ~17 tok/s prefill. Eval 01-fix-panic 0/3 on Vulkan (3 timeouts). Same limit as qwen3-coder-30b-colibri."
+
 # The same weights on LM Studio. Measured 2026-09-25, full eval suite, 3 runs
 # per task, 8K context, 120s bar, on an RTX 4060 8 GB laptop:
 #   ministral-3-3b-lmstudio   19/30   3m39s

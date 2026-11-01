@@ -54,6 +54,10 @@ func (s style) marker(f Fit) string {
 		return s.yellow("↓")
 	case FitHosted:
 		return s.green("☁")
+	case FitServing:
+		return s.green("▶")
+	case FitNotServed:
+		return s.dim("‖")
 	default:
 		return s.dim("·")
 	}
@@ -144,7 +148,7 @@ func summary(w io.Writer, s style, r *Report) {
 	var usable, blocked int
 	for _, m := range r.Models {
 		switch m.Fit {
-		case FitResident, FitOffload, FitCPU:
+		case FitResident, FitOffload, FitCPU, FitServing:
 			usable++
 		case FitBlocked:
 			blocked++

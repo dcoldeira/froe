@@ -234,3 +234,31 @@ func TestHostedModelWithUnavailableRuntimeIsBlocked(t *testing.T) {
 		t.Errorf("fit = %q, want %q", got.Fit, FitBlocked)
 	}
 }
+
+// A single-model runtime's own footprint must not count against it. Measured
+// 2026-11-01: colibri serving Qwen3-Coder held 7.1 of 8 GB VRAM, and doctor
+// reported its own model as "offload!" at 5% GPU.
+func TestMarkServing(t *testing.T) {
+	serving := registry.Model{ID: "qwen3-coder-30b-colibri", RuntimeID: "qwen3-coder-30b", Runtime: "colibri", SizeGB: 18.6, PeakMB: 13900}
+	other := registry.Model{ID: "flint-colibri", RuntimeID: "flint", Runtime: "colibri", SizeGB: 18.5, PeakMB: 12000}
+	h := host(8188, 7435, 15615, 4000) // the card and RAM as colibri leaves them
+	rts := map[string]bool{"colibri": true}
+	present := map[string]map[string]bool{"colibri": {"qwen3-coder-30b": true}}
+
+	r := markServing(assess(serving, h, rts, present, nil), serving, present)
+	if r.Fit != FitServing || r.Tight || r.Reason != "" {
+		t.Fatalf("served model: got fit %q tight %v reason %q, want serving", r.Fit, r.Tight, r.Reason)
+	}
+
+	r = markServing(assess(other, h, rts, present, nil), other, present)
+	if r.Fit != FitNotServed || !strings.Contains(r.Reason, "serving another model") {
+		t.Fatalf("other model: got fit %q reason %q, want not served", r.Fit, r.Reason)
+	}
+
+	// Runtime down: nothing is known, so the ordinary verdict stands.
+	down := map[string]bool{"colibri": false}
+	r = markServing(assess(serving, h, down, map[string]map[string]bool{}, nil), serving, map[string]map[string]bool{})
+	if r.Fit != FitBlocked {
+		t.Fatalf("runtime down: got fit %q, want blocked", r.Fit)
+	}
+}

@@ -38,6 +38,13 @@ const (
 	FitBlocked Fit = "blocked"
 	// FitMissing: the runtime is up but does not have this model.
 	FitMissing Fit = "not pulled"
+	// FitServing: its runtime is serving it right now, so it demonstrably
+	// fits. Judging it against free VRAM would count its own footprint
+	// against it: colibri holding 7 GB of an 8 GB card read as "5% GPU".
+	FitServing Fit = "serving"
+	// FitNotServed: a single-model runtime is up and serving something else.
+	// The model may well be on disk, so "not pulled" would be wrong.
+	FitNotServed Fit = "not served"
 	// FitHosted: runs on someone else's hardware, so local memory says nothing
 	// about it. Reported separately rather than as a fit this host achieved.
 	FitHosted Fit = "hosted"
@@ -104,9 +111,26 @@ func Run(ctx context.Context) (*Report, error) {
 	}
 
 	for _, m := range cat.Models {
-		rep.Models = append(rep.Models, assess(m, host, available, present, hosted))
+		r := assess(m, host, available, present, hosted)
+		if cat.Runtimes[m.Runtime].ServesOne {
+			r = markServing(r, m, present)
+		}
+		rep.Models = append(rep.Models, r)
 	}
 	return rep, nil
+}
+
+// markServing reports a model as serving when its single-model runtime lists
+// it, whatever the memory arithmetic said: the arithmetic ran against VRAM the
+// model itself is holding.
+func markServing(r ModelReport, m registry.Model, present map[string]map[string]bool) ModelReport {
+	if have := present[m.Runtime]; have != nil && have[m.ServeID()] {
+		r.Fit, r.Tight, r.Reason = FitServing, false, ""
+	} else if r.Fit == FitMissing {
+		r.Fit = FitNotServed
+		r.Reason = m.Runtime + " is serving another model - restart it with this one"
+	}
+	return r
 }
 
 // assess decides how a model would run here.

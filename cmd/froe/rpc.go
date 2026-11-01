@@ -158,6 +158,7 @@ func (h *rpcHandler) Run(ctx context.Context, p rpc.RunParams, emit func(rpc.Eve
 		gate = acceptEdits{inner: h.asker}
 	}
 
+	window := effectiveContext(ctx, h.choice.Model, h.choice.Runtime, style{}, true)
 	a := &agent.Agent{
 		Provider:            h.provider,
 		Model:               h.choice.Model,
@@ -167,7 +168,9 @@ func (h *rpcHandler) Run(ctx context.Context, p rpc.RunParams, emit func(rpc.Eve
 		System:              defaultSystem,
 		Context:             projectCtx,
 		History:             h.history,
-		MaxToolResultTokens: effectiveContext(ctx, h.choice.Model, h.choice.Runtime, style{}, true) / 4,
+		MaxToolResultTokens: window / 4,
+		ContextWindow:       window,
+		PrefixReuse:         h.choice.Runtime.PrefixReuse,
 		RequireEvidence:     class == resolve.RouteCareful,
 	}
 

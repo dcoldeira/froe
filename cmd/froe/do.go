@@ -141,6 +141,7 @@ func runDo(ctx context.Context, args []string) error {
 	if store != nil {
 		env.Memory = store
 	}
+	window := effectiveContext(ctx, choice.Model, choice.Runtime, st, true)
 	a := &agent.Agent{
 		Provider:            p,
 		Model:               choice.Model,
@@ -148,7 +149,9 @@ func runDo(ctx context.Context, args []string) error {
 		Gate:                perms.NewGate(mode),
 		Env:                 env,
 		History:             history,
-		MaxToolResultTokens: effectiveContext(ctx, choice.Model, choice.Runtime, st, true) / 4,
+		MaxToolResultTokens: window / 4,
+		ContextWindow:       window,
+		PrefixReuse:         choice.Runtime.PrefixReuse,
 		MaxTurns:            *maxTurns,
 		System:              sys,
 		Context:             projectCtx,
@@ -374,6 +377,9 @@ func agentMetrics(st style, m agent.Metrics) string {
 		s += fmt.Sprintf(" (%d reasoning)", m.ReasoningTokens)
 	}
 	s += fmt.Sprintf(" · %.1fs", m.Elapsed.Seconds())
+	if m.FirstTurn > 0 && m.Turns > 1 {
+		s += fmt.Sprintf(" (first turn %.1fs)", m.FirstTurn.Seconds())
+	}
 	return st.dim(s)
 }
 

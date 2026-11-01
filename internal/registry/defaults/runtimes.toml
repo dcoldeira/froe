@@ -27,6 +27,15 @@ base_url = "http://localhost:8081/v1"
 grammar  = "unverified"
 notes    = "PrismML fork (github.com/PrismML-Eng/llama.cpp). OPEN: does it ship llama-server or only llama-cli? Does GBNF survive? How far behind upstream?"
 
+[runtime.colibri]
+kind     = "openai-compat"
+base_url = "http://127.0.0.1:8000/v1"
+grammar  = "no"            # its GBNF only drafts tokens for speed; it never constrains sampling
+managed  = true
+serves_one = true          # /v1/models lists the one model being served
+prefix_reuse = true        # a turn that extends the held conversation reads only what is new
+notes    = "Open source (Apache 2.0), github.com/JustVugg/colibri. Start with: COLI_PARK=0 coli serve --model <dir> --model-id <runtime_id> --auto-tier --ctx 8192. COLI_PARK=0 matters: otherwise a new task shorter than the held conversation is treated as a side question, the old conversation is kept, and the new one is re-read on every turn. One model per server, so there is no load command and routing stays on the served model. Reports its window at /v1/models (context_length). Port 8000 is its default; move it with --port and a base_url overlay."
+
 [runtime.lmstudio]
 kind     = "openai-compat"
 base_url = "http://localhost:1234/v1"

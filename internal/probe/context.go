@@ -31,6 +31,43 @@ func ContextSize(ctx context.Context, rt registry.Runtime, modelID string) int {
 	if n := llamaCppContext(ctx, base); n > 0 {
 		return n
 	}
+	if n := openAIModelsContext(ctx, base, modelID); n > 0 {
+		return n
+	}
+	return 0
+}
+
+// openAIModelsContext reads the context window from the model list at
+// /v1/models, for runtimes that put it there: colibri reports context_length
+// (and max_model_len, as vLLM does), both the window the server was started
+// with, not the model's theoretical maximum.
+func openAIModelsContext(ctx context.Context, base, modelID string) int {
+	var body struct {
+		Data []struct {
+			ID            string `json:"id"`
+			ContextLength int    `json:"context_length"`
+			MaxModelLen   int    `json:"max_model_len"`
+		} `json:"data"`
+	}
+	if !getJSON(ctx, base+"/v1/models", &body) {
+		return 0
+	}
+	window := func(i int) int {
+		if n := body.Data[i].ContextLength; n > 0 {
+			return n
+		}
+		return body.Data[i].MaxModelLen
+	}
+	for i, m := range body.Data {
+		if m.ID == modelID {
+			return window(i)
+		}
+	}
+	// A server with one model is unambiguous even when its id is spelled
+	// differently from the registry's.
+	if len(body.Data) == 1 {
+		return window(0)
+	}
 	return 0
 }
 

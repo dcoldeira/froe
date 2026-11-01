@@ -65,6 +65,14 @@ type Runtime struct {
 	// the routed model is not the one loaded. Empty means froe cannot switch
 	// models on this runtime and routing stays on the loaded one.
 	Load []string `toml:"load"`
+	// ServesOne marks a server that holds a single model, so its model list
+	// is exactly what is loaded rather than what is downloaded (colibri).
+	ServesOne bool `toml:"serves_one"`
+	// PrefixReuse marks a server that skips re-reading a prompt when the
+	// request extends the conversation it already holds, and re-reads all of
+	// it otherwise (colibri). froe then keeps a run's history append-only, so
+	// each turn pays only for what is new.
+	PrefixReuse bool `toml:"prefix_reuse"`
 }
 
 // Hosted reports whether this runtime executes somewhere else. The signal is

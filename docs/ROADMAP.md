@@ -22,16 +22,66 @@ Facts that shape the integration, from colibri's own docs (v2.1.0):
 - One model per server. Routing between two models means restarting the
   server, or one model in both roles.
 
+### What was measured (2026-11-01, RTX 4060 8 GB, 16 GB RAM)
+
+Colibri reads a prompt slowly the first time and almost for free after that:
+a request that extends the conversation the server holds reads only what is
+new. On a 2094-token prompt with Qwen3-Coder-30B-A3B: 129.5 s cold, 3.9 s as the
+next turn. Generation is ~5 tok/s, CUDA or Vulkan alike: most experts do not
+fit in 8 GB of VRAM and run on the CPU (~130 ms a token).
+
+Froe was built for runtimes that start from nothing each time, so it threw the
+reuse away. Eval task 01 took 433-459 s. Three things broke the match:
+- notes ("Already explored", format hints) added to a per-request copy of the
+  last message, so the next request lacked them;
+- `fitContext` rewriting earlier tool results a little at a time;
+- in colibri itself, a Qwen3-Coder tool-call turn re-rendered with one newline
+  more than the model wrote (see Upstream below).
+
+Done:
+- Runtime flag `prefix_reuse` (on for colibri). With it, notes are kept in the
+  history, and `fitContext` shrinks to 60% of its budget at once when it has
+  to, so the next turns are append-only again.
+- `fitContext` budgets against the window the runtime serves. It used the
+  registry's `ctx_max` (262144 for these models), so it never trimmed.
+- `FROE_DUMP_REQUESTS=<dir>` writes every request as sent.
+- `froe do` reports the first turn's time; `eval/run.sh` has
+  `FIRST_TURN_ALLOWANCE`.
+- Result: with the Froe changes and the colibri patch, every turn after the
+  first reuses 91-99% of the prompt.
+
+### Upstream (colibri)
+
+- **Tool-call turn re-rendered with an extra newline** (Qwen3-Coder renderer).
+  The model writes `text\n<tool_call>`; the template renders `text\n\n<tool_call>`,
+  so reuse misses on every turn that has text before a call. A patch that
+  renders the model's own single newline when the content carries it, with a
+  test, is on branch `froe/qwen3-coder-tool-call-reuse` of the local checkout.
+  To open as an issue first: it departs from the official template in that one
+  case, which is the maintainers' call.
+- **Rewind for attention-only models.** A new conversation that starts with
+  what the server holds (the same Froe preamble) is read again in full: the
+  engine reuses only when the held state is shorter than the prompt. A model
+  with no recurrent layers could rewind to the shared start (`kv_prefix_common`
+  exists for this). That would make the first turn of every Froe command after
+  the first nearly free.
+- Benchmark rows for this laptop, as their protocol asks.
+- `nvcc` 12.4 warnings in `backend_cuda.cu` (their PRs require zero warnings).
+
 To do:
-- `[runtime.colibri]` in `runtimes.toml`, and registry entries for the coding
-  candidates: Qwen3-Coder-30B-A3B (imported 2026-10-31 on the reference laptop)
-  and Flint 40B-A2.5B.
+- ~~`[runtime.colibri]` and registry entries~~ Done: Qwen3-Coder-30B-A3B and
+  Flint 40B-A2.5B, with measured speeds.
 - A `load` command that restarts `coli serve` on another model.
-- Read the served context window instead of assuming 8192 (`internal/probe`).
-- `froe doctor`: a fit verdict from RAM and free disk for colibri models, not
-  from VRAM alone.
-- Run the full eval, 3 repeats per model, and set roles from the result. The
-  120 s bar per run still applies: a model that is good but too slow fails.
+- A warm project session: one long conversation per project on its own KV slot
+  (`--kv-slots`, `cache_slot`), each command a new turn, so the preamble is
+  read once. It reverses D8's fresh context per command, so it has to be
+  measured.
+- ~~Read the served context window~~ Done: `/v1/models` `context_length`.
+- ~~`froe doctor` counted colibri's own VRAM against it~~ Done: "serving" and
+  "not served" verdicts for single-model runtimes.
+- Run the full eval, 3 repeats per model, with `FIRST_TURN_ALLOWANCE` for the
+  cold first turn, and set roles from the result. The turns after the first
+  still have the 120 s bar.
 - Then rewrite `docs/SETUP.md` §4 and the README's eval table from those runs.
 - Upstream: send colibri the benchmark rows (they ask for them, negative results
   included) and any tool-call bugs the eval finds.

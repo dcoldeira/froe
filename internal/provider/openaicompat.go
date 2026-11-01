@@ -9,7 +9,10 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
@@ -173,12 +176,32 @@ func (c *OpenAICompat) buildBody(req Request) map[string]any {
 	return body
 }
 
+// dumpSeq numbers the files dumpRequest writes, in the order sent.
+var dumpSeq atomic.Int64
+
+// dumpRequest writes a request body as sent to $FROE_DUMP_REQUESTS/<pid>-<n>.json
+// when that variable names a directory. For debugging what a runtime actually
+// received: whether one turn's request extends the last (prefix reuse), what a
+// template choked on. Off unless set; a failure to write is ignored.
+func dumpRequest(payload []byte) {
+	dir := os.Getenv("FROE_DUMP_REQUESTS")
+	if dir == "" {
+		return
+	}
+	if os.MkdirAll(dir, 0o755) != nil {
+		return
+	}
+	name := fmt.Sprintf("%d-%03d.json", os.Getpid(), dumpSeq.Add(1))
+	_ = os.WriteFile(filepath.Join(dir, name), payload, 0o644)
+}
+
 // Chat streams a completion.
 func (c *OpenAICompat) Chat(ctx context.Context, req Request) (<-chan Event, error) {
 	payload, err := json.Marshal(c.buildBody(req))
 	if err != nil {
 		return nil, fmt.Errorf("marshal request: %w", err)
 	}
+	dumpRequest(payload)
 
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost,
 		c.baseURL+"/chat/completions", bytes.NewReader(payload))

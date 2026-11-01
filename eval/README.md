@@ -16,6 +16,7 @@ MODEL=bonsai-27b-lmstudio ONLY=07-multi-site bash eval/run.sh
 | `REPEATS` | `3` | runs per task; the score is a rate |
 | `ONLY` | all | run one task by directory name |
 | `TIMEOUT` | `120` | seconds per run; a run past it is a FAIL |
+| `FIRST_TURN_ALLOWANCE` | `0` | extra seconds for the first turn only, for a runtime that reuses the prompt it holds (colibri); the turns after the first must still fit `TIMEOUT` |
 | `TURNS` | `25` | turn budget, the same as `froe do` |
 | `MODE` | `-yolo` | permission mode; each task runs in a scratch repo |
 | `FROE` | `froe` | binary under test |
@@ -67,7 +68,8 @@ pass count.
 
 | Mode | Meaning |
 |---|---|
-| `timeout` | still running at `TIMEOUT` |
+| `timeout` | still running at `TIMEOUT` (plus `FIRST_TURN_ALLOWANCE`) |
+| `too-slow` | finished, but the turns after the first took longer than `TIMEOUT` |
 | `context-overflow` | the runtime refused a prompt larger than its context |
 | `runtime-error` | the runtime answered HTTP 5xx and froe stopped |
 | `stuck-failing` / `stuck-fruitless` / `stuck-no-progress` | froe's loop detector ended the run |

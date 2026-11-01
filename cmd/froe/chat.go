@@ -96,6 +96,7 @@ func runChat(ctx context.Context, args []string) error {
 		env.Memory = st
 	}
 
+	window := effectiveContext(ctx, choice.Model, choice.Runtime, style, true)
 	a := &agent.Agent{
 		Provider:            p,
 		Model:               choice.Model,
@@ -104,7 +105,9 @@ func runChat(ctx context.Context, args []string) error {
 		Env:                 env,
 		System:              defaultSystem,
 		History:             history,
-		MaxToolResultTokens: effectiveContext(ctx, choice.Model, choice.Runtime, style, true) / 4,
+		MaxToolResultTokens: window / 4,
+		ContextWindow:       window,
+		PrefixReuse:         choice.Runtime.PrefixReuse,
 	}
 
 	// No pinned model means each task is routed, as in Neovim.

@@ -106,6 +106,12 @@ const contextBoundary = "End of project context. Your task is the user's message
 // own question) before applying the template.
 const contextReserveShare = 4 // one quarter
 
+// prefixReuseLowWater is the share of the budget fitContext shrinks to under
+// PrefixReuse. Every shrink rewrites an earlier message and costs a full
+// re-read of the prompt, so it frees room for several turns at once rather
+// than just enough for the next one.
+const prefixReuseLowWater = 0.6
+
 // droppedToolResult replaces a tool result fitContext has shrunk to make
 // room. Distinct from clampResult's truncation notice so a message already
 // shrunk once is never mistaken for one that still has content to give up.
@@ -151,6 +157,12 @@ type Metrics struct {
 	CompletionTokens int
 	ReasoningTokens  int
 	Elapsed          time.Duration
+	// FirstTurn is how long the first model reply took. On a runtime that
+	// reuses the prompt it already holds (colibri), the first turn reads the
+	// whole preamble cold and the rest read only what is new, so the two
+	// are reported apart: measured 2026-11-01, ~95 s for the first turn of
+	// eval task 01 and ~25 s for the four after it.
+	FirstTurn time.Duration
 
 	// FilesChanged lists every path a mutating tool wrote, in the order first
 	// touched. A run that aborts still leaves those edits on disk, so the
@@ -194,6 +206,19 @@ type Agent struct {
 	// recall - a count, a complete list, a name to confirm. A run that answers
 	// it without one tool call is sent back once to check.
 	RequireEvidence bool
+	// ContextWindow is the window the runtime actually serves, from
+	// effectiveContext. Zero falls back to the registry's CtxMax, which is
+	// what the model supports, not what is loaded.
+	ContextWindow int
+	// PrefixReuse keeps the conversation append-only, for a runtime that
+	// re-reads the whole prompt unless a request extends the one it holds
+	// (registry.Runtime.PrefixReuse). Measured 2026-11-01 on colibri, a
+	// 2094-token prompt: 129.5 s cold, 3.9 s as the next turn of the same
+	// conversation. Notes become part of the message they are attached to
+	// instead of a per-request copy, and fitContext, when it must shrink,
+	// shrinks to prefixReuseLowWater of the budget so the following turns
+	// are append-only again.
+	PrefixReuse bool
 }
 
 // Transcript returns the messages this run produced, excluding the system
@@ -402,6 +427,13 @@ func (a *Agent) run(ctx context.Context, task string, images []provider.ImageCon
 
 		reqMsgs := msgs
 		for _, n := range notes {
+			if a.PrefixReuse {
+				// Kept: the server holds the request as sent, so a note that
+				// vanished from the next request would break the match there.
+				msgs = withNoteKept(msgs, n)
+				reqMsgs = msgs
+				continue
+			}
 			reqMsgs = withNote(reqMsgs, n)
 		}
 		req := provider.RequestFor(a.Model, reqMsgs)
@@ -471,6 +503,9 @@ func (a *Agent) run(ctx context.Context, task string, images []provider.ImageCon
 					m.ReasoningTokens += ev.Metrics.ReasoningTokens
 				}
 			}
+		}
+		if m.FirstTurn == 0 {
+			m.FirstTurn = time.Since(start)
 		}
 
 		answer := text.String()
@@ -921,6 +956,16 @@ func verifyNudge(changed []string, check string) string {
 // 2026-09-25, ministral-3-8b on LM Studio: 25 of 30 eval runs ended on turn 2
 // with "conversation roles must alternate user and assistant roles except for
 // tool calls and results".
+// withNoteKept is withNote written into msgs itself, for PrefixReuse: the note
+// stays in the history every later request repeats.
+func withNoteKept(msgs []provider.Message, note string) []provider.Message {
+	if n := len(msgs); n > 0 && msgs[n-1].Role == provider.RoleTool {
+		msgs[n-1].Content += "\n\n" + note
+		return msgs
+	}
+	return append(msgs, provider.Message{Role: provider.RoleUser, Content: note})
+}
+
 func withNote(msgs []provider.Message, note string) []provider.Message {
 	out := append([]provider.Message(nil), msgs...)
 	if n := len(out); n > 0 && out[n-1].Role == provider.RoleTool {
@@ -931,10 +976,11 @@ func withNote(msgs []provider.Message, note string) []provider.Message {
 }
 
 // stillHeld reports whether a tool result is still in the conversation as it
-// was returned, rather than replaced by fitContext.
+// was returned, rather than replaced by fitContext. A kept note may follow it
+// (withNoteKept), so the result only has to open the message.
 func stillHeld(msgs []provider.Message, result string) bool {
 	for _, m := range msgs {
-		if m.Role == provider.RoleTool && m.Content == result {
+		if m.Role == provider.RoleTool && strings.HasPrefix(m.Content, result) {
 			return true
 		}
 	}
@@ -1117,10 +1163,7 @@ func (a *Agent) runTool(ctx context.Context, call provider.ToolCall, emit func(E
 // real prompt overflowed, LM Studio cut the middle of the conversation to
 // fit, and the cut broke Mistral's role order - HTTP 500 on 2 of 7 runs.
 func (a *Agent) fitContext(msgs []provider.Message, protect map[int]bool, overhead int) {
-	ctxMax := a.Model.CtxMax
-	if ctxMax <= 0 {
-		ctxMax = 8192
-	}
+	ctxMax := a.window()
 	// Overhead can leave nothing for the conversation. Then every result
 	// that may be dropped is dropped: sending it anyway is what overflows.
 	budget := max(ctxMax-ctxMax/contextReserveShare-overhead, 0)
@@ -1130,7 +1173,11 @@ func (a *Agent) fitContext(msgs []provider.Message, protect map[int]bool, overhe
 		total += messageTokens(m)
 	}
 
-	for total > budget {
+	target := budget
+	if a.PrefixReuse && total > budget {
+		target = int(float64(budget) * prefixReuseLowWater)
+	}
+	for total > target {
 		// Drop the BIGGEST droppable tool result, not the oldest.
 		//
 		// Oldest-first looks fair and is actively harmful: findings arrive
@@ -1161,6 +1208,18 @@ func (a *Agent) fitContext(msgs []provider.Message, protect map[int]bool, overhe
 		total -= estimateTokens(msgs[shrink].Content) - estimateTokens(droppedToolResult)
 		msgs[shrink].Content = droppedToolResult
 	}
+}
+
+// window is the context the runtime serves: ContextWindow when the caller
+// probed it, else the registry's CtxMax, else 8192.
+func (a *Agent) window() int {
+	if a.ContextWindow > 0 {
+		return a.ContextWindow
+	}
+	if a.Model.CtxMax > 0 {
+		return a.Model.CtxMax
+	}
+	return 8192
 }
 
 // messageTokens estimates a message's text plus its tool calls.
@@ -1207,11 +1266,7 @@ func exploredEntry(call provider.ToolCall) string {
 func (a *Agent) clampResult(tool, result string) string {
 	limit := a.MaxToolResultTokens
 	if limit <= 0 {
-		ctxMax := a.Model.CtxMax
-		if ctxMax <= 0 {
-			ctxMax = 8192
-		}
-		limit = ctxMax / defaultToolResultShare
+		limit = a.window() / defaultToolResultShare
 	}
 
 	maxChars := limit * 3
