@@ -105,6 +105,10 @@ had no allowance.
 
 06 is the rerun with the leaked-call retry (it was 0/3 in the suite run, every
 run ending on a tool call written as text); the other rows are the suite run.
+Later the same day, with a run that says it is done after a passing check ending
+there, 01 scored 3/3 (160 s median, first turn 62 s). With colibri's resume
+from the shared prompt ([#2537](https://github.com/JustVugg/colibri/pull/2537)),
+the first turn of the second and third runs of a task fell from 52-99 s to 2-3 s.
 That morning the same model and laptop scored 0: froe re-sent a rewritten
 history every turn, and colibri read the whole prompt again each time. What
 changed it, in `docs/ROADMAP.md` ("colibri as the default runtime"): an

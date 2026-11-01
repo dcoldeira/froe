@@ -133,9 +133,25 @@ Then point it at a model runtime. Froe speaks OpenAI-compatible
 `/v1/chat/completions` as its lingua franca, so llama.cpp, Ollama and vLLM all
 work through one adapter. LM Studio works through the same adapter, but it is a
 closed binary, so it is supported rather than recommended.
-[colibri](https://github.com/JustVugg/colibri), an open-source engine that runs
-large mixture-of-experts models by streaming experts from disk, is becoming the
-default runtime; that work is tracked in [`docs/ROADMAP.md`](docs/ROADMAP.md).
+
+[colibri](https://github.com/JustVugg/colibri) is becoming the default runtime. It
+is open source, runs large mixture-of-experts models on ordinary machines by
+streaming experts from disk, and reads a prompt it has seen before almost for
+free. Froe is built around that: with `prefix_reuse` set (it is, for colibri) the
+conversation only ever grows, so each turn costs only what is new. Start it with:
+
+```bash
+COLI_PARK=0 coli serve --model <model dir> --model-id qwen3-coder-30b --auto-tier --ctx 8192
+```
+
+`COLI_PARK=0` keeps a new task from being mistaken for a side question. Two fixes
+found while doing this are upstream as pull requests
+([#2535](https://github.com/JustVugg/colibri/pull/2535): a tool-call turn
+re-rendered one newline off, so nothing was reused;
+[#2537](https://github.com/JustVugg/colibri/pull/2537): resume a new task from the
+shared system prompt instead of reading it again). The work is tracked in
+[`docs/ROADMAP.md`](docs/ROADMAP.md).
+
 Mistral (EU-hosted) is the cloud fallback for when local hardware can't fit the
 job — the sane choice when governance forbids US processing; Anthropic has its
 own adapter for those who want it regardless. Nothing local ever falls back to
@@ -175,15 +191,22 @@ bash eval/run.sh            # all tasks
 ONLY=01-fix-panic bash eval/run.sh
 ```
 
-Latest, same build, 3 runs per task, on a laptop with an 8 GB RTX 4060 and
-16 GB of RAM (2026-09-25). These runs predate the move away from LM Studio and
-will be re-run on open runtimes:
+On a laptop with an 8 GB RTX 4060 and 16 GB of RAM, 3 runs per task:
 
-| Model | Runtime | Score | Suite time |
-|---|---|---|---|
-| Bonsai 27B (1-bit) | LM Studio | 24/30 | 23m19s |
-| **Ministral 3 8B** (default) | LM Studio | 23/30 | 6m39s |
-| Ministral 3 3B | LM Studio | 19/30 | 3m39s |
+| Model | Runtime | Score | Suite time | When |
+|---|---|---|---|---|
+| Qwen3-Coder 30B-A3B | colibri | 18/30 * | 64m | 2026-11-01 |
+| Bonsai 27B (1-bit) | LM Studio | 24/30 | 23m19s | 2026-09-25 |
+| **Ministral 3 8B** (current default) | LM Studio | 23/30 | 6m39s | 2026-09-25 |
+| Ministral 3 3B | LM Studio | 19/30 | 3m39s | 2026-09-25 |
+
+\* With `FIRST_TURN_ALLOWANCE=180`: colibri reads a project's prompt cold the
+first time (50-150 s on this laptop), and the 120 s bar applies to the turns
+after it. The same morning, before froe kept its history append-only, this model
+scored 0/30. Since the suite run, two froe fixes took task 06 from 0/3 to 2/3 and
+01 from 0/3 to 3/3; a full re-run is next. The limit on this laptop is speed:
+about 5 tokens a second, because most of the model's experts do not fit in 8 GB of
+VRAM. A machine with more memory is a different picture.
 
 The full table, the tasks and the failure modes are in
 [`eval/README.md`](eval/README.md).
@@ -195,7 +218,13 @@ Public since 2026-09-23.
 In daily use for commits: `froe commit` drives the release process for
 [QRL](https://github.com/entangledcode/qrl) and [Bell](https://bell.entangledcode.dev),
 the two projects it was built to develop. `froe locate` is the first of the stepwise
-commands and is measured above. More stepwise commands (`explain`, `plan`,
+commands and is measured above.
+
+**Runtime:** moving from LM Studio (closed source) to colibri (open source). Froe
+runs on colibri and is measured on it; the shipped default is switched once a
+full eval on it is in. Two colibri pull requests came out of the work so far
+([#2535](https://github.com/JustVugg/colibri/pull/2535),
+[#2537](https://github.com/JustVugg/colibri/pull/2537)). More stepwise commands (`explain`, `plan`,
 `step`) are planned, not built.
 
 **Platforms:** Linux is where it is used and measured. It builds for macOS and
