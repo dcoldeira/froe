@@ -1,0 +1,135 @@
+#!/usr/bin/env bash
+# froe-colibri: start colibri the way froe needs it.
+#
+# The settings that matter are colibri environment variables, not froe config,
+# so they live here instead of in someone's memory:
+#   COLI_PARK=0  - otherwise a new task shorter than the conversation colibri
+#                  holds is taken for a side question, the old conversation is
+#                  kept, and the new task is read again in full every turn
+#                  (measured 2026-11-01: an eval run went from ~100 s to a
+#                  timeout).
+#   the backend  - colibri runs on the CPU unless told which GPU path to use.
+#
+# Usage: froe-colibri --model DIR [--model-id ID] [--port N] [--ctx N]
+#                     [--gpu auto|cuda|vulkan|cpu] [--log-reuse]
+#                     [--background] [--dry-run]
+#
+# --background: for an editor's launch key (Neovim's <leader>dl). If colibri
+# already serves the model on the port, say so and exit 0. Otherwise start it
+# detached, logging to $FROE_COLIBRI_LOG (~/.cache/froe/colibri.log), and exit 0
+# once it answers - or 1, with the log's tail, if it dies or takes longer than
+# $FROE_COLIBRI_WAIT seconds (300). Without it, colibri runs in the foreground.
+#
+# Defaults come from the environment where set: COLI (path to coli),
+# FROE_COLIBRI_MODEL, FROE_COLIBRI_MODEL_ID, FROE_COLIBRI_PORT.
+set -euo pipefail
+
+usage() {
+  sed -n '2,25p' "$0" | sed 's/^# \{0,1\}//'
+  exit "${1:-0}"
+}
+
+model="${FROE_COLIBRI_MODEL:-}"
+model_id="${FROE_COLIBRI_MODEL_ID:-qwen3-coder-30b}"   # froe's registry runtime_id
+port="${FROE_COLIBRI_PORT:-8000}"                      # colibri's own default
+ctx=8192
+gpu=auto
+log_reuse=0
+dry=0
+background=0
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --model)     model="$2"; shift 2 ;;
+    --model-id)  model_id="$2"; shift 2 ;;
+    --port)      port="$2"; shift 2 ;;
+    --ctx)       ctx="$2"; shift 2 ;;
+    --gpu)       gpu="$2"; shift 2 ;;
+    --log-reuse) log_reuse=1; shift ;;
+    --background) background=1; shift ;;
+    --dry-run)   dry=1; shift ;;
+    -h|--help)   usage 0 ;;
+    *) echo "froe-colibri: unknown argument: $1" >&2; usage 2 ;;
+  esac
+done
+
+[ -n "$model" ] || { echo "froe-colibri: --model DIR is required (a colibri model directory, e.g. from 'coli import')" >&2; exit 2; }
+[ "$dry" = 1 ] || [ -d "$model" ] || { echo "froe-colibri: no such model directory: $model" >&2; exit 2; }
+
+# coli: $COLI, then PATH, then a checkout in the usual place.
+coli="${COLI:-}"
+if [ -z "$coli" ]; then
+  if command -v coli >/dev/null 2>&1; then coli="$(command -v coli)"
+  elif [ -x "$HOME/development/colibri/c/coli" ]; then coli="$HOME/development/colibri/c/coli"
+  fi
+fi
+[ -n "$coli" ] || { echo "froe-colibri: coli not found - set COLI=/path/to/coli or put it on PATH" >&2; exit 2; }
+
+if [ "$gpu" = auto ]; then
+  if command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi -L >/dev/null 2>&1; then gpu=cuda
+  elif command -v vulkaninfo >/dev/null 2>&1; then gpu=vulkan
+  else gpu=cpu
+  fi
+fi
+
+env_vars=(COLI_PARK=0)
+case "$gpu" in
+  cuda)   env_vars+=(COLI_CUDA=1 CUDA_EXPERT_GB=auto) ;;
+  vulkan) env_vars+=(COLI_VULKAN=1) ;;
+  cpu)    ;;
+  *) echo "froe-colibri: --gpu must be auto, cuda, vulkan or cpu (got $gpu)" >&2; exit 2 ;;
+esac
+[ "$log_reuse" = 1 ] && env_vars+=(COLI_PREFIX_LOG=1)
+
+cmd=("$coli" serve --model "$model" --model-id "$model_id" --host 127.0.0.1 --port "$port"
+     --auto-tier --ctx "$ctx")
+
+echo "froe-colibri: $gpu backend, model id $model_id, http://127.0.0.1:$port/v1" >&2
+if [ "$port" != 8000 ]; then
+  echo "froe-colibri: not the default port - set base_url = \"http://127.0.0.1:$port/v1\" under [runtime.colibri] in ~/.config/froe/runtimes.toml" >&2
+fi
+
+if [ "$dry" = 1 ]; then
+  printf '%s ' "${env_vars[@]}" "${cmd[@]}"
+  echo
+  exit 0
+fi
+[ "$background" = 1 ] || exec env "${env_vars[@]}" "${cmd[@]}"
+
+# --background from here on.
+models="http://127.0.0.1:$port/v1/models"
+# What answers on the port now: 000 is nothing listening.
+code=$(curl -s -m 3 -o /dev/null -w '%{http_code}' "$models" || true)
+if [ "$code" = 200 ]; then
+  if curl -s -m 3 "$models" | grep -q "\"id\": *\"$model_id\""; then
+    echo "froe-colibri: already serving $model_id on port $port" >&2
+    exit 0
+  fi
+  echo "froe-colibri: port $port already serves another model - stop it first (coli stop --port $port)" >&2
+  exit 1
+elif [ "$code" != 000 ]; then
+  echo "froe-colibri: port $port is taken by something that is not colibri (HTTP $code) - pick another with --port" >&2
+  exit 1
+fi
+
+log="${FROE_COLIBRI_LOG:-$HOME/.cache/froe/colibri.log}"
+mkdir -p "$(dirname "$log")"
+setsid env "${env_vars[@]}" "${cmd[@]}" > "$log" 2>&1 < /dev/null &
+pid=$!
+wait_s="${FROE_COLIBRI_WAIT:-300}"
+echo "froe-colibri: starting (pid $pid, log $log), waiting up to ${wait_s}s" >&2
+for _ in $(seq 1 "$wait_s"); do
+  if curl -s -m 2 "$models" | grep -q "\"id\": *\"$model_id\""; then
+    echo "froe-colibri: ready, serving $model_id on port $port" >&2
+    exit 0
+  fi
+  if ! kill -0 "$pid" 2>/dev/null; then
+    echo "froe-colibri: colibri exited before it was ready; the end of $log:" >&2
+    tail -n 15 "$log" >&2
+    exit 1
+  fi
+  sleep 1
+done
+echo "froe-colibri: not ready after ${wait_s}s; still starting? the end of $log:" >&2
+tail -n 15 "$log" >&2
+exit 1

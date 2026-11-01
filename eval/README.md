@@ -122,6 +122,32 @@ mismatch in tool-call turns
   time; a machine with more VRAM and RAM is a different picture.
 - **01 and 09-10 are the model's behaviour**, not the runtime's.
 
+### colibri, second full run (2026-11-01, evening)
+
+Same model and laptop, with everything from the first run's notes in place:
+the leaked-call retry, a done claim after a passing check ending the run, and
+colibri with both fixes (#2535, #2537) and `COLI_PARK=0`. 55m39s.
+
+| Task | Score | Median secs (first turn) | Failure |
+|---|---|---|---|
+| 01-fix-panic | 2/3 | 129 (3) | one too-slow |
+| 02-find-symbol | 3/3 | 1 | |
+| 03-add-function | 1/3 | 155 (50) | two too-slow (12-15 turns) |
+| 04-git-history | 3/3 | 7 (2) | |
+| 05-multi-file | 2/3 | 122 (51) | one too-slow (16 turns) |
+| 06-wrong-path | 2/3 | 120 (3) | one wrong result |
+| 07-multi-site | 0/3 | 300 | timeouts |
+| 08-large-file | 3/3 | 56 (5) | |
+| 09-locate-wrong-path | 2/3 | 46 (8) | one wrong result |
+| 10-locate-real-shape | 0/3 | 37 | answers in one turn, at the wrong place |
+| **total** | **18/30** | | |
+
+The same total as the first run, but a different 18 and faster: the second and
+third runs of a task start in 1-8 s (the first run's first turn is still 50-135
+s cold), and the suite took 56 minutes instead of 64. Four of the twelve
+failures are too-slow by 2-33 s on runs of 12-16 turns: at ~5 tokens a second,
+the bar decides them, and which runs land under it varies.
+
 ### LM Studio and Ollama (2026-09-25)
 
 Same froe build for every row, 8K context, 3 runs per task, 120 s

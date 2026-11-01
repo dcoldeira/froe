@@ -109,9 +109,8 @@ files, an 1876-line target, four decoys that all match the obvious glob:
 3. **Open source, end to end.** The code that sees your source should be code
    you can read. Froe is MIT, and the recommended runtimes are open source
    (llama.cpp, Ollama, vLLM, and [colibri](https://github.com/JustVugg/colibri)).
-   Closed runtimes work through the same adapter, but none is the recommended path.
-   One honest exception for now: the shipped default model still runs on
-   LM Studio, until the switch to colibri lands.
+   Closed-source runtimes such as LM Studio also work, because they speak the
+   same API, but froe never picks them by default and is not tested on them.
 4. **Measured on ordinary hardware.** The numbers below come from one laptop
    with 16 GB of RAM and an 8 GB GPU. Nothing is tuned for that box in particular:
    `froe doctor` measures what a machine can actually do instead of assuming,
@@ -138,13 +137,15 @@ closed binary, so it is supported rather than recommended.
 is open source, runs large mixture-of-experts models on ordinary machines by
 streaming experts from disk, and reads a prompt it has seen before almost for
 free. Froe is built around that: with `prefix_reuse` set (it is, for colibri) the
-conversation only ever grows, so each turn costs only what is new. Start it with:
+conversation only ever grows, so each turn costs only what is new. Start it with
+`froe-colibri`, installed next to froe:
 
 ```bash
-COLI_PARK=0 coli serve --model <model dir> --model-id qwen3-coder-30b --auto-tier --ctx 8192
+froe-colibri --model <model dir> --background   # returns once the model answers
 ```
 
-`COLI_PARK=0` keeps a new task from being mistaken for a side question. Two fixes
+It sets `COLI_PARK=0`, which keeps a new task from being mistaken for a side
+question, and picks the GPU backend. Two fixes
 found while doing this are upstream as pull requests
 ([#2535](https://github.com/JustVugg/colibri/pull/2535): a tool-call turn
 re-rendered one newline off, so nothing was reused;
@@ -195,18 +196,19 @@ On a laptop with an 8 GB RTX 4060 and 16 GB of RAM, 3 runs per task:
 
 | Model | Runtime | Score | Suite time | When |
 |---|---|---|---|---|
-| Qwen3-Coder 30B-A3B | colibri | 18/30 * | 64m | 2026-11-01 |
+| **Qwen3-Coder 30B-A3B** (default) | colibri | 18/30 * | 56m | 2026-11-01 |
 | Bonsai 27B (1-bit) | LM Studio | 24/30 | 23m19s | 2026-09-25 |
-| **Ministral 3 8B** (current default) | LM Studio | 23/30 | 6m39s | 2026-09-25 |
+| Ministral 3 8B (default until 2026-11-01) | LM Studio | 23/30 | 6m39s | 2026-09-25 |
 | Ministral 3 3B | LM Studio | 19/30 | 3m39s | 2026-09-25 |
 
 \* With `FIRST_TURN_ALLOWANCE=180`: colibri reads a project's prompt cold the
 first time (50-150 s on this laptop), and the 120 s bar applies to the turns
 after it. The same morning, before froe kept its history append-only, this model
-scored 0/30. Since the suite run, two froe fixes took task 06 from 0/3 to 2/3 and
-01 from 0/3 to 3/3; a full re-run is next. The limit on this laptop is speed:
-about 5 tokens a second, because most of the model's experts do not fit in 8 GB of
-VRAM. A machine with more memory is a different picture.
+scored 0/30. With colibri resuming a task from the shared prompt, the second and
+third runs of a task start in 1-8 s instead of 50-100 s. The limit on this laptop
+is speed: about 5 tokens a second, because most of the model's experts do not fit
+in 8 GB of VRAM, so a run that needs 12-16 turns misses the bar by seconds. A
+machine with more memory is a different picture.
 
 The full table, the tasks and the failure modes are in
 [`eval/README.md`](eval/README.md).
@@ -220,9 +222,8 @@ In daily use for commits: `froe commit` drives the release process for
 the two projects it was built to develop. `froe locate` is the first of the stepwise
 commands and is measured above.
 
-**Runtime:** moving from LM Studio (closed source) to colibri (open source). Froe
-runs on colibri and is measured on it; the shipped default is switched once a
-full eval on it is in. Two colibri pull requests came out of the work so far
+**Runtime:** colibri (open source) is the default, replacing LM Studio (closed
+source) on 2026-11-01; `froe-colibri` starts it with the settings froe needs. Two colibri pull requests came out of the work so far
 ([#2535](https://github.com/JustVugg/colibri/pull/2535),
 [#2537](https://github.com/JustVugg/colibri/pull/2537)). More stepwise commands (`explain`, `plan`,
 `step`) are planned, not built.

@@ -49,7 +49,7 @@ vision        = true          # needs mmproj-Bonsai-27B-BF16.gguf (+0.87 GB)
 thinking_budget_tokens = 64   # MEASURED: 16 is ~2x faster but drops the eval from 5/5 to 4/5 - it stops recovering from tool errors
 # careful: MEASURED 2026-09-29, a 3-part read-only lookup on QRL - 3/3 right in
 # 38.6s, reading each file; ministral-3-8b-lmstudio took 4.7s and guessed.
-roles         = ["main", "heavy", "careful"]
+roles         = []            # LM Studio is closed source: usable by name, never picked by default
 notes         = "Pull: lms get prism-ml/bonsai-27b -y --gguf. MEASURED on RTX A500 4GB: loads in 5s, 3838/4096 MiB VRAM, ~4.5 tok/s generation. Reasons by default and CANNOT be disabled via /no_think, enable_thinking or reasoning_effort - only thinking_budget_tokens works."
 
 # Same GGUF as bonsai-27b-lmstudio, served by UPSTREAM llama.cpp instead of the
@@ -225,7 +225,7 @@ peak_mb       = 13900
 peak_ctx      = 8192
 ctx_max       = 262144
 tool_strategy = "native"
-roles         = ["main"]
+roles         = ["default", "main", "quick", "careful"]   # one model per colibri server: both routes
 notes         = "Qwen3-Coder-30B-A3B-Instruct GGUF (lmstudio-community Q4_K_M) on colibri's Qwen3.6 engine. MEASURED 2026-11-01 on the reference laptop, Vulkan: native tool call correct; ~5 tok/s generation, ~50 tok/s prefill. CUDA build: ~5.4 tok/s, ~22 tok/s prefill. Eval 01-fix-panic 0/3 (3 timeouts, no turn finished). Limit is RAM+VRAM, not the backend: ~1950 of 6144 experts fit on the card and ~130 ms a token goes to experts on the CPU. Needs a machine with more memory."
 
 [[model]]
@@ -260,7 +260,7 @@ peak_mb       = 5775          # MEASURED 2026-09-25: 5.64 GiB loaded @ 8K ctx
 peak_ctx      = 8192
 ctx_max       = 262144
 tool_strategy = "native"
-roles         = ["default", "main", "quick"]
+roles         = []            # LM Studio is closed source: usable by name, never picked by default
 
 [[model]]
 id            = "ministral-3-3b-lmstudio"
@@ -271,7 +271,7 @@ quant         = "Q4_K_M"
 size_gb       = 2.99
 ctx_max       = 262144
 tool_strategy = "native"
-roles         = ["main"]
+roles         = []            # LM Studio is closed source: usable by name, never picked by default
 notes         = "Low-resource option: 19/30 in 3m39s. Misses the harder locate tasks."
 
 [[model]]
@@ -283,7 +283,7 @@ quant         = "Q4_K_M"
 size_gb       = 9.12
 ctx_max       = 262144
 tool_strategy = "native"
-roles         = ["heavy"]
+roles         = []            # LM Studio is closed source: usable by name, never picked by default
 notes         = "21/30 but 19m56s on 8 GB VRAM. Better per task than the 8B; worth it on a bigger card."
 
 [[model]]

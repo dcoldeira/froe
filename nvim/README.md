@@ -30,8 +30,10 @@ return {
       mode = "ask",          -- "ask" | "accept-edits" | "yolo"
       show_reasoning = false,
       -- Optional: what :FroeLaunch runs to bring the model up. Machine-specific.
-      -- e.g. { "ollama", "serve" } or your llama-server command line.
-      -- launch = { ... },
+      -- froe-colibri returns once the model answers, and does nothing if
+      -- it is already serving (docs/SETUP.md §4).
+      launch = { "froe-colibri", "--background",
+        "--model", vim.fn.expand("~/colibri-models/qwen3-coder-30b-gguf") },
     })
   end,
 }

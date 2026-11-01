@@ -4,10 +4,8 @@ Steps to go from a bare machine to `froe` working in the terminal and in
 Neovim, with a local model on an open-source runtime. The reference machine is
 a laptop with an RTX 4060 (8 GB VRAM) and 16 GB of RAM.
 
-> **In transition (2026-11).** [colibri](https://github.com/JustVugg/colibri) is
-> becoming the default runtime, replacing LM Studio, which is closed source.
-> Until that lands (see `docs/ROADMAP.md`), §4 describes llama.cpp and Ollama;
-> the LM Studio steps are kept at the end of §4 for anyone who already uses it.
+Colibri is the default runtime (since 2026-11-01). LM Studio is closed source
+and no longer used by default; it still works if you point froe at it.
 
 ---
 
@@ -45,45 +43,57 @@ export PATH="$PATH:$HOME/go/bin"
 Either is fine; don't do both or you'll have two binaries shadowing each
 other. `which froe` to check if unsure.)
 
-## 4. Pick a model backend
+## 4. Model runtime: colibri
 
-Froe talks OpenAI-compatible `/v1/chat/completions`, so any runtime that
-serves it works. The open-source ones are the recommended path:
+[colibri](https://github.com/JustVugg/colibri) (Apache 2.0) runs
+mixture-of-experts models on ordinary machines by keeping the active part in RAM
+and streaming the experts from disk. It reads a prompt it has seen before almost
+for free, and froe keeps its conversations append-only so every turn after the
+first costs only what is new.
 
-- **llama.cpp** (`llama-server`): exposes GBNF grammars, so tool calls are
-  guaranteed well-formed. Start it with `--jinja` and an explicit `-c 8192`.
-- **Ollama**: lowest friction. Set `num_ctx` explicitly — the 4096 default
-  silently truncates longer prompts.
+**Install colibri** (Linux, macOS, Windows): follow its README; the one-step
+setup is `./start-here.sh` (or `START-HERE.bat`). On an NVIDIA card with the
+CUDA toolkit installed, build the engine with CUDA; Vulkan works on any GPU.
 
-```bash
-ollama pull qwen2.5-coder:1.5b    # the small model behind `froe commit`
-```
-
-**LM Studio (optional, closed source).** It works through the same adapter,
-headless:
+**Get the default model**, Qwen3-Coder-30B-A3B, from a published GGUF:
 
 ```bash
-# LM Studio ships its own CLI at ~/.lmstudio/bin/lms
-export PATH="$PATH:$HOME/.lmstudio/bin"   # add to ~/.bashrc too
-
-lms daemon up            # starts the llmster daemon, no GUI needed
-lms server status        # confirm it's listening on :1234
-lms get <model> -y --gguf
+coli import Qwen3-Coder-30B-A3B-Instruct-Q4_K_M.gguf --out ~/colibri-models/qwen3-coder-30b-gguf --mode link
 ```
 
-Load the model **with explicit flags** — LM Studio's auto-defaults pick
-`--parallel 4`, which reserves KV-cache slots for concurrency a single
-interactive user doesn't need and costs both VRAM and per-request speed:
+**Start it with `froe-colibri`** (installed next to froe by `make install`). It
+sets what froe needs: `COLI_PARK=0` (otherwise a new task shorter than the
+conversation colibri holds is taken for a side question and read again every
+turn) and the GPU backend.
 
 ```bash
-lms load "<model>" --gpu max -c 8192 --parallel 1 --ttl 86400 -y
+froe-colibri --model ~/colibri-models/qwen3-coder-30b-gguf               # foreground
+froe-colibri --model ~/colibri-models/qwen3-coder-30b-gguf --background  # detached; returns when ready
 ```
 
-Verify with `lms ps` — should read `PARALLEL 1`, `CONTEXT 8192`,
-`TTL 24h / 24h`. Because the TTL means the model unloads after 24h idle,
-**re-check `lms ps` after any long idle period or reboot** — a plain
-`lms load` with no flags after that will silently regress to `parallel 4`.
+`--background` is what Neovim's `<leader>dl` should run (§6): it does nothing if
+the model is already serving, and logs to `~/.cache/froe/colibri.log`. If port
+8000 is taken, pass `--port` and set the same `base_url` under
+`[runtime.colibri]` in `~/.config/froe/runtimes.toml`. An entry there replaces
+the shipped one outright, so copy every field, including `serves_one = true`
+and `prefix_reuse = true`.
 
+Check it: `froe doctor` should list colibri as running and the model as
+`serving`.
+
+**On a smaller machine** the first turn of a project is slow (about 50-150 s on
+an 8 GB GPU with 16 GB of RAM, cold) and generation is about 5 tokens a second;
+the turns after it, and later commands in the same project, are fast. See
+`eval/README.md` for measured numbers.
+
+**Other open-source runtimes** work through the same adapter: llama.cpp
+(`llama-server --jinja -c 8192`, with GBNF grammars) and Ollama (set `num_ctx`;
+its 4096 default silently truncates). `froe commit` uses a small model on
+Ollama:
+
+```bash
+ollama pull qwen2.5-coder:1.5b
+```
 
 ## 5. Machine profile
 
