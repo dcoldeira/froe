@@ -15,7 +15,8 @@ import (
 //
 // This matters more than it sounds. A registry entry records what a model can
 // support — Bonsai advertises 262144 — but the runtime decides what it actually
-// loads, and LM Studio's default is 8192. Budgeting against the theoretical
+// loads, and llama-server starts with the -c it is given (8192 from
+// froe-llamacpp). Budgeting against the theoretical
 // figure built a 5075-token instruction block and a 5943-token map for a window
 // that could hold neither, and the request failed at 9372 tokens. Ask the
 // backend; never trust the registry for this.
@@ -25,9 +26,6 @@ func ContextSize(ctx context.Context, rt registry.Runtime, modelID string) int {
 
 	base := strings.TrimSuffix(strings.TrimRight(rt.BaseURL, "/"), "/v1")
 
-	if n := lmStudioContext(ctx, base, modelID); n > 0 {
-		return n
-	}
 	if n := llamaCppContext(ctx, base); n > 0 {
 		return n
 	}
@@ -67,34 +65,6 @@ func openAIModelsContext(ctx context.Context, base, modelID string) int {
 	// differently from the registry's.
 	if len(body.Data) == 1 {
 		return window(0)
-	}
-	return 0
-}
-
-// lmStudioContext reads LM Studio's native endpoint, which reports both the
-// model's maximum and what it was actually loaded with.
-func lmStudioContext(ctx context.Context, base, modelID string) int {
-	var body struct {
-		Data []struct {
-			ID                  string `json:"id"`
-			State               string `json:"state"`
-			LoadedContextLength int    `json:"loaded_context_length"`
-		} `json:"data"`
-	}
-	if !getJSON(ctx, base+"/api/v0/models", &body) {
-		return 0
-	}
-	for _, m := range body.Data {
-		if m.ID == modelID && m.LoadedContextLength > 0 {
-			return m.LoadedContextLength
-		}
-	}
-	// A single loaded model is unambiguous even if the id does not match the
-	// registry's spelling.
-	for _, m := range body.Data {
-		if m.State == "loaded" && m.LoadedContextLength > 0 {
-			return m.LoadedContextLength
-		}
 	}
 	return 0
 }
@@ -159,30 +129,4 @@ func ModelsPresent(ctx context.Context, rt registry.Runtime) map[string]bool {
 		out[m.ID] = true
 	}
 	return out
-}
-
-// Loaded reports whether a runtime has a model loaded right now, as opposed to
-// merely downloaded. known is false when the runtime will not say; only LM
-// Studio's native endpoint reports it, and callers must then leave the runtime
-// alone rather than reload a model that may already be serving.
-func Loaded(ctx context.Context, rt registry.Runtime, serveID string) (loaded, known bool) {
-	ctx, cancel := context.WithTimeout(ctx, DefaultTimeout)
-	defer cancel()
-
-	var body struct {
-		Data []struct {
-			ID    string `json:"id"`
-			State string `json:"state"`
-		} `json:"data"`
-	}
-	base := strings.TrimSuffix(strings.TrimRight(rt.BaseURL, "/"), "/v1")
-	if !getJSON(ctx, base+"/api/v0/models", &body) {
-		return false, false
-	}
-	for _, m := range body.Data {
-		if m.ID == serveID {
-			return m.State == "loaded", true
-		}
-	}
-	return false, true
 }

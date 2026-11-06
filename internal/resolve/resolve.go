@@ -54,9 +54,9 @@ func PickWithPreference(ctx context.Context, cat *registry.Catalogue, id string,
 				return Choice{}, fmt.Errorf("model %q references undefined runtime %q", id, m.Runtime)
 			}
 			// A pinned model wakes its runtime too, not only a routed one.
-			// Found 2026-10-03: `froe do -model bonsai-27b-lmstudio` on a cold
-			// machine failed with lmstudio "not responding", while the same
-			// task unpinned would have started LM Studio and gone ahead.
+			// Found 2026-10-03: a pinned model on a cold machine failed with
+			// its runtime "not responding", while the same task unpinned
+			// would have started the runtime and gone ahead.
 			if rep := probe.Runtime(ctx, rt); !rep.OK && !wake(ctx, rt, m) {
 				return Choice{}, fmt.Errorf("model %q needs runtime %q, which is %s (%s)",
 					id, rt.Name, rep.State, rep.Detail)
@@ -86,8 +86,8 @@ func PickWithPreference(ctx context.Context, cat *registry.Catalogue, id string,
 	m, ok := ChooseByRole(models, pref, up, hosted)
 	if want, leaves := leavesMachine(models, pref, cat.Runtimes, m, ok); leaves {
 		// The local model meant for this is down. Wake its runtime rather than
-		// send the work somewhere else. Measured 2026-10-01: with the LM Studio
-		// service asleep, routing went to codestral-latest and
+		// send the work somewhere else. Measured 2026-10-01: with the local
+		// runtime asleep, routing went to codestral-latest and
 		// mistral-large-latest on the Mistral API, and the only sign was the
 		// model name on the route line.
 		rt := cat.Runtimes[want.Runtime]
@@ -135,21 +135,16 @@ func leavesMachine(models []registry.Model, pref []string, runtimes map[string]r
 // model from disk. main sets it to a line on stderr, which Neovim shows too.
 var Starting func(runtime, model string, argv []string)
 
-// wake brings a down runtime up for m and reports whether it then answers:
-// its start command when it has one (colibri, through froe-colibri), else
-// its load command (LM Studio's service sleeps when idle, and lms wakes it).
+// wake brings a down runtime up for m with its start command (llama.cpp
+// through froe-llamacpp, colibri through froe-colibri) and reports whether it
+// then answers. A runtime without one cannot be woken.
 func wake(ctx context.Context, rt registry.Runtime, m registry.Model) bool {
-	var argv []string
-	switch {
-	case len(rt.Start) > 0:
-		argv = StartCommand(rt, m)
-		if Starting != nil {
-			Starting(rt.Name, m.ID, argv)
-		}
-	case len(rt.Load) > 0:
-		argv = LoadCommand(rt.Load, m.ServeID())
-	default:
+	if len(rt.Start) == 0 {
 		return false
+	}
+	argv := StartCommand(rt, m)
+	if Starting != nil {
+		Starting(rt.Name, m.ID, argv)
 	}
 	if err := exec.CommandContext(ctx, argv[0], argv[1:]...).Run(); err != nil {
 		return false
@@ -175,8 +170,7 @@ func StartCommand(rt registry.Runtime, m registry.Model) []string {
 //
 // A runtime answering is not the same as it having the model. Seen
 // 2026-09-24: plain `froe do` resolved to qwen2.5-coder:7b, never pulled, and
-// failed on the first request. It matters more since the default became an
-// LM Studio model that a fresh install will not have. A runtime that cannot
+// failed on the first request. A runtime that cannot
 // list its models (nil) keeps them all, and hosted runtimes are not asked:
 // probing should not call a vendor.
 func pulled(ctx context.Context, cat *registry.Catalogue, probes map[string]probe.Report) []registry.Model {
@@ -219,7 +213,7 @@ func keepPresent(models []registry.Model, present map[string]map[string]bool) []
 //
 // Local before hosted, then smallest. A hosted model has no size_gb, so by size
 // alone it counted as 0 GB and beat every local model in its role: found
-// 2026-10-01 with the shipped catalogue, LM Studio down and Ollama up, the
+// 2026-10-01 with the shipped catalogue, the default runtime down and Ollama up, the
 // quick route picked codestral-latest over the local ministral-3:8b. hosted
 // may be nil, meaning nothing is hosted.
 func ChooseByRole(models []registry.Model, pref []string, available, hosted func(runtime string) bool) (registry.Model, bool) {

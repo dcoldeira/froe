@@ -4,8 +4,8 @@ Steps to go from a bare machine to `froe` working in the terminal and in
 Neovim, with a local model on an open-source runtime. The reference machine is
 a laptop with an RTX 4060 (8 GB VRAM) and 16 GB of RAM.
 
-Colibri is the default runtime (since 2026-11-01). LM Studio is closed source
-and no longer used by default; it still works if you point froe at it.
+llama.cpp is the default runtime (since 2026-11-06), serving Qwen3-Coder-30B-A3B.
+colibri is supported as an alternative (§4b).
 
 ---
 
@@ -43,58 +43,92 @@ export PATH="$PATH:$HOME/go/bin"
 Either is fine; don't do both or you'll have two binaries shadowing each
 other. `which froe` to check if unsure.)
 
-## 4. Model runtime: colibri
+## 4. Model runtime: llama.cpp
 
-[colibri](https://github.com/JustVugg/colibri) (Apache 2.0) runs
-mixture-of-experts models on ordinary machines by keeping the active part in RAM
-and streaming the experts from disk. It reads a prompt it has seen before almost
-for free, and froe keeps its conversations append-only so every turn after the
-first costs only what is new.
+[llama.cpp](https://github.com/ggml-org/llama.cpp) (MIT) is the default runtime.
+Its `llama-server` speaks the OpenAI API, keeps the conversation it has read so
+each turn reads only what is new, and splits a mixture-of-experts model between
+the GPU and the CPU to fit the card.
 
-**Install colibri** (Linux, macOS, Windows): follow its README; the one-step
-setup is `./start-here.sh` (or `START-HERE.bat`). On an NVIDIA card with the
-CUDA toolkit installed, build the engine with CUDA; Vulkan works on any GPU.
-
-**Get the default model**, Qwen3-Coder-30B-A3B, from a published GGUF:
+**Build llama.cpp** with your GPU's backend. On an NVIDIA card with the CUDA
+toolkit installed (froe's start script looks in `~/src/llama.cpp` if
+`llama-server` is not on `PATH`):
 
 ```bash
-coli import Qwen3-Coder-30B-A3B-Instruct-Q4_K_M.gguf --out ~/colibri-models/qwen3-coder-30b-gguf --mode link
+git clone https://github.com/ggml-org/llama.cpp ~/src/llama.cpp
+cd ~/src/llama.cpp
+cmake -B build -DGGML_CUDA=ON -DCMAKE_BUILD_TYPE=Release -DLLAMA_CURL=OFF
+cmake --build build --config Release -j --target llama-server
 ```
 
-**Start it with `froe-colibri`** (installed next to froe by `make install`). It
-sets what froe needs: `COLI_PARK=0` (otherwise a new task shorter than the
-conversation colibri holds is taken for a side question and read again every
-turn) and the GPU backend.
+Without CUDA, leave out `-DGGML_CUDA=ON` (or use `-DGGML_VULKAN=ON`). Release
+binaries for Linux, macOS and Windows are also published on the llama.cpp
+releases page. The measurements in this repo used release `b12169`.
+
+**Get the default model**, Qwen3-Coder-30B-A3B-Instruct at Q4_K_M (18.6 GB),
+from Hugging Face (`unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF`), to the path the
+registry expects:
 
 ```bash
-froe-colibri --model ~/colibri-models/qwen3-coder-30b-gguf               # foreground
-froe-colibri --model ~/colibri-models/qwen3-coder-30b-gguf --background  # detached; returns when ready
+mkdir -p ~/models
+curl -L -o ~/models/Qwen3-Coder-30B-A3B-Instruct-Q4_K_M.gguf \
+  https://huggingface.co/unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF/resolve/main/Qwen3-Coder-30B-A3B-Instruct-Q4_K_M.gguf
 ```
 
-**You rarely need to run it yourself.** When colibri is down, froe starts it with
-`froe-colibri --background` before the first request (the runtime's `start`
+**Start it with `froe-llamacpp`** (installed next to froe by `make install`). It
+sets what froe needs: one slot (`--parallel 1`, so a conversation stays where it
+was read), the model's own chat template (`--jinja`, for native tool calls) and
+an 8K window. llama.cpp's `--fit` sizes the GPU/CPU split for that window.
+
+```bash
+froe-llamacpp --model ~/models/Qwen3-Coder-30B-A3B-Instruct-Q4_K_M.gguf               # foreground
+froe-llamacpp --model ~/models/Qwen3-Coder-30B-A3B-Instruct-Q4_K_M.gguf --background  # detached; returns when ready
+```
+
+Anything after `--` goes to llama-server as is, for example
+`-- --n-cpu-moe 34` to set the split by hand.
+
+**You rarely need to run it yourself.** When llama-server is down, froe starts it
+with `froe-llamacpp --background` before the first request (the runtime's `start`
 command, using the model's `path` from the registry) and says so on stderr; in
 Neovim that line is a notification. `--background` does nothing if the model is
-already serving, and logs to `~/.cache/froe/colibri.log`. Neovim's `<leader>dl`
-can run it too, to start colibri ahead of time (§6). If port
-8000 is taken, pass `--port` and set the same `base_url` under
-`[runtime.colibri]` in `~/.config/froe/runtimes.toml`. An entry there replaces
-the shipped one outright, so copy every field, including `serves_one = true`
-`prefix_reuse = true` and the `start` line. The model's location is its `path`
-in the registry (`~/colibri-models/qwen3-coder-30b-gguf` for the default);
-override it in `~/.config/froe/models.toml` if yours is elsewhere.
+already serving, and logs to `~/.cache/froe/llamacpp.log`. Neovim's `<leader>dl`
+can run it too, to start it ahead of time (§6). If port 8080 is taken, pass
+`--port` and set the same `base_url` under `[runtime.llamacpp]` in
+`~/.config/froe/runtimes.toml`. An entry there replaces the shipped one
+outright, so copy every field, including `serves_one = true`,
+`prefix_reuse = true` and the `start` line. If the model file is elsewhere,
+override the model's `path` in `~/.config/froe/models.toml`.
 
-Check it: `froe doctor` should list colibri as running and the model as
+Check it: `froe doctor` should list llamacpp as running and the model as
 `serving`.
 
-**On a smaller machine** the first turn of a project is slow (about 50-150 s on
-an 8 GB GPU with 16 GB of RAM, cold) and generation is about 5 tokens a second;
-the turns after it, and later commands in the same project, are fast. See
-`eval/README.md` for measured numbers.
+**What to expect on an 8 GB GPU with 16 GB of RAM** (measured 2026-11-06, RTX
+4060 laptop): about 7 GB of VRAM, ~31-35 tokens a second generated and ~425 read,
+and first turns of 0-9 s. The experts that stay on the CPU are read from the
+file through the page cache, which takes most of the RAM (~12 GB). Close other
+heavy programs while it runs; if the system runs short of memory, the model
+pages experts back in from disk and slows down rather than failing. See
+`eval/README.md` for the full numbers.
 
-**Other open-source runtimes** work through the same adapter: llama.cpp
-(`llama-server --jinja -c 8192`, with GBNF grammars) and Ollama (set `num_ctx`;
-its 4096 default silently truncates). `froe commit` uses a small model on
+## 4b. Alternative runtime: colibri
+
+[colibri](https://github.com/JustVugg/colibri) (Apache 2.0) runs
+mixture-of-experts models by keeping the active part in RAM and streaming the
+experts from disk. On an 8 GB card it is about six times slower than llama.cpp
+with the same model (16/30 on the eval in 63 minutes, against 22/30 in 11), so it
+is not the default; it is worth trying on machines it fits better. Install it from
+its README (`./start-here.sh`), import the same GGUF, and start it with
+`froe-colibri`, which sets `COLI_PARK=0` and the GPU backend:
+
+```bash
+coli import ~/models/Qwen3-Coder-30B-A3B-Instruct-Q4_K_M.gguf --out ~/colibri-models/qwen3-coder-30b-gguf --mode link
+froe-colibri --model ~/colibri-models/qwen3-coder-30b-gguf --background
+froe do --model qwen3-coder-30b-colibri "..."
+```
+
+**Other open-source runtimes** work through the same adapter, such as Ollama
+(set `num_ctx`; its 4096 default silently truncates). `froe commit` uses a small model on
 Ollama:
 
 ```bash

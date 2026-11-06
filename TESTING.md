@@ -56,18 +56,19 @@ failures that looked like model limits were froe bugs:
 |---|---|---|
 | 2026-09-24, Bonsai 06 regression | model got worse | reading a file after editing it returned a stale "unchanged" |
 | 2026-09-24, Bonsai 07 loops | model repeating itself | a result dropped to fit the context was answered "use what you already have" |
-| 2026-09-25, Ministral on LM Studio 4/30 | model can't use tools | froe sent a user message straight after a tool result, which Mistral's chat template refuses |
+| 2026-09-25, Ministral 4/30 | model can't use tools | froe sent a user message straight after a tool result, which Mistral's chat template refuses |
 | 2026-09-25, Ministral 05 on Ollama | malformed tool call | froe fused two parallel calls sent at the same index into one |
 
 ### Harness hygiene
 
-- **Measure one model at a time.** Unload the others first (`lms unload --all`,
-  or Ollama `keep_alive: 0`). A second model on the GPU distorts timings.
+- **Measure one model at a time.** Stop the other servers first (llama-server,
+  colibri, or Ollama with `keep_alive: 0`). A second model on the GPU distorts
+  timings, and a build or an eval running beside it distorts them too.
 - **Compare models on the same froe build.** A fix made after one model's run
   makes the comparison meaningless until the other is re-run.
 - **Account for the runtime.** Ollama loads models at a 4096 context unless
   told otherwise and silently truncates past it. Its tool-call parser also
-  fails on output that LM Studio passes through.
+  rejects output that llama.cpp accepts (raw tabs in Go code: HTTP 500).
 - **Don't pattern-kill.** `pkill -f` patterns match the shell that runs them.
   Match the command's first word instead, e.g.
   `awk '$2=="bash" && $3=="eval/run.sh"'`.

@@ -107,10 +107,9 @@ files, an 1876-line target, four decoys that all match the obvious glob:
    a model is compiled in — models are registry entries, hardware profiles are
    detected, and a runtime is a binary path rather than a name.
 3. **Open source, end to end.** The code that sees your source should be code
-   you can read. Froe is MIT, and the recommended runtimes are open source
-   (llama.cpp, Ollama, vLLM, and [colibri](https://github.com/JustVugg/colibri)).
-   Closed-source runtimes such as LM Studio also work, because they speak the
-   same API, but froe never picks them by default and is not tested on them.
+   you can read. Froe is MIT, and every runtime it ships with is open source:
+   [llama.cpp](https://github.com/ggml-org/llama.cpp) (the default), Ollama,
+   vLLM and [colibri](https://github.com/JustVugg/colibri).
 4. **Measured on ordinary hardware.** The numbers below come from one laptop
    with 16 GB of RAM and an 8 GB GPU. Nothing is tuned for that box in particular:
    `froe doctor` measures what a machine can actually do instead of assuming,
@@ -129,29 +128,33 @@ froe doctor
 ```
 
 Then point it at a model runtime. Froe speaks OpenAI-compatible
-`/v1/chat/completions` as its lingua franca, so llama.cpp, Ollama and vLLM all
-work through one adapter. LM Studio works through the same adapter, but it is a
-closed binary, so it is supported rather than recommended.
+`/v1/chat/completions` as its lingua franca, so llama.cpp, Ollama, vLLM and
+colibri all work through one adapter.
 
-[colibri](https://github.com/JustVugg/colibri) is becoming the default runtime. It
-is open source, runs large mixture-of-experts models on ordinary machines by
-streaming experts from disk, and reads a prompt it has seen before almost for
-free. Froe is built around that: with `prefix_reuse` set (it is, for colibri) the
-conversation only ever grows, so each turn costs only what is new. When colibri is down, froe starts it before the first request, from the terminal
-or from Neovim, with `froe-colibri`, installed next to froe:
+The default is **Qwen3-Coder-30B-A3B on [llama.cpp](https://github.com/ggml-org/llama.cpp)**'s
+`llama-server`. It is a mixture-of-experts model with 3.3B of its 30.5B
+parameters active per token, so it runs on an 8 GB card with the rest of the
+experts on the CPU. With `prefix_reuse` set (it is, for llama.cpp) the
+conversation only ever grows, so each turn reads only what is new. When
+llama-server is down, froe starts it before the first request, from the terminal
+or from Neovim, with `froe-llamacpp`, installed next to froe:
 
 ```bash
-froe-colibri --model <model dir> --background   # returns once the model answers
+froe-llamacpp --model ~/models/Qwen3-Coder-30B-A3B-Instruct-Q4_K_M.gguf --background
 ```
 
-It sets `COLI_PARK=0`, which keeps a new task from being mistaken for a side
-question, and picks the GPU backend. Two fixes
-found while doing this are upstream as pull requests
+It runs one slot (so the conversation stays where it was read), the model's own
+chat template for native tool calls, and an 8K window; llama.cpp's `--fit` sizes
+the GPU/CPU split to the card.
+
+[colibri](https://github.com/JustVugg/colibri) is supported too, started the same
+way by `froe-colibri`. It was the default from 2026-11-01 to 2026-11-06; two fixes
+found while building froe around it are merged upstream
 ([#2535](https://github.com/JustVugg/colibri/pull/2535): a tool-call turn
 re-rendered one newline off, so nothing was reused;
 [#2537](https://github.com/JustVugg/colibri/pull/2537): resume a new task from the
-shared system prompt instead of reading it again). The work is tracked in
-[`docs/ROADMAP.md`](docs/ROADMAP.md).
+shared system prompt instead of reading it again). On an 8 GB card the same
+model runs about six times faster on llama.cpp, which is why the default moved.
 
 Mistral (EU-hosted) is the cloud fallback for when local hardware can't fit the
 job — the sane choice when governance forbids US processing; Anthropic has its
@@ -196,19 +199,20 @@ On a laptop with an 8 GB RTX 4060 and 16 GB of RAM, 3 runs per task:
 
 | Model | Runtime | Score | Suite time | When |
 |---|---|---|---|---|
-| **Qwen3-Coder 30B-A3B** (default) | colibri | 18/30 * | 56m | 2026-11-01 |
-| Bonsai 27B (1-bit) | LM Studio | 24/30 | 23m19s | 2026-09-25 |
-| Ministral 3 8B (default until 2026-11-01) | LM Studio | 23/30 | 6m39s | 2026-09-25 |
-| Ministral 3 3B | LM Studio | 19/30 | 3m39s | 2026-09-25 |
+| **Qwen3-Coder 30B-A3B** (default) | **llama.cpp** | **22/30** | **11m31s** | 2026-11-06 |
+| Qwen3-Coder 30B-A3B, same file | colibri | 16/30 * | 62m55s | 2026-11-06 |
+| Qwen3-Coder 30B-A3B, same file | colibri | 18/30 * | 56m | 2026-11-01 |
+| Ministral 3 8B | Ollama | 19/30 | 6m24s | 2026-09-25 |
+
+On llama.cpp the model generates ~31-35 tokens a second and reads prompts at
+~425, so no run timed out; the eight misses are wrong answers (tasks 06, 07,
+09, 10). On colibri the same file runs at ~5 tokens a second on this laptop,
+because most experts sit on the CPU, and a run that needs 12-16 turns misses
+the bar.
 
 \* With `FIRST_TURN_ALLOWANCE=180`: colibri reads a project's prompt cold the
 first time (50-150 s on this laptop), and the 120 s bar applies to the turns
-after it. The same morning, before froe kept its history append-only, this model
-scored 0/30. With colibri resuming a task from the shared prompt, the second and
-third runs of a task start in 1-8 s instead of 50-100 s. The limit on this laptop
-is speed: about 5 tokens a second, because most of the model's experts do not fit
-in 8 GB of VRAM, so a run that needs 12-16 turns misses the bar by seconds. A
-machine with more memory is a different picture.
+after it. llama.cpp needs no allowance: its first turns took 0-9 s.
 
 The full table, the tasks and the failure modes are in
 [`eval/README.md`](eval/README.md).
@@ -222,11 +226,12 @@ In daily use for commits: `froe commit` drives the release process for
 the two projects it was built to develop. `froe locate` is the first of the stepwise
 commands and is measured above.
 
-**Runtime:** colibri (open source) is the default, replacing LM Studio (closed
-source) on 2026-11-01; `froe-colibri` starts it with the settings froe needs. Two colibri pull requests came out of the work so far
-([#2535](https://github.com/JustVugg/colibri/pull/2535),
-[#2537](https://github.com/JustVugg/colibri/pull/2537)). More stepwise commands (`explain`, `plan`,
-`step`) are planned, not built.
+**Runtime:** llama.cpp is the default since 2026-11-06, measured against colibri
+on the same model; `froe-llamacpp` starts it with the settings froe needs.
+colibri stays supported, and two colibri pull requests that came out of the work
+are merged upstream ([#2535](https://github.com/JustVugg/colibri/pull/2535),
+[#2537](https://github.com/JustVugg/colibri/pull/2537)). More stepwise commands
+(`explain`, `plan`, `step`) are planned, not built.
 
 **Platforms:** Linux is where it is used and measured. It builds for macOS and
 Windows, but neither has been run end to end; on Windows, use WSL2 for now

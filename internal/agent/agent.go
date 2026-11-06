@@ -100,7 +100,7 @@ const contextBoundary = "End of project context. Your task is the user's message
 // clampResult only bounds a SINGLE tool result; it cannot see the running
 // total. Three individually-capped results can still add up to more than the
 // window holds. Observed 2026-09-13: a web-search task on an 8192-token
-// Bonsai load crashed three tool calls in with LM Studio's chat template
+// Bonsai load crashed three tool calls in with the runtime's chat template
 // raising "No user query found in messages" - the engine, forced to fit an
 // overlong prompt, had dropped the earliest messages (including the user's
 // own question) before applying the template.
@@ -1064,7 +1064,7 @@ func verifyNudge(changed []string, check string) string {
 // withNote returns a copy of msgs with froe's note added. After a tool result
 // it is folded into that result rather than sent as a user message: Mistral's
 // chat template refuses a user turn straight after a tool result. Measured
-// 2026-09-25, ministral-3-8b on LM Studio: 25 of 30 eval runs ended on turn 2
+// 2026-09-25, ministral-3-8b: 25 of 30 eval runs ended on turn 2
 // with "conversation roles must alternate user and assistant roles except for
 // tool calls and results".
 // withNoteKept is withNote written into msgs itself, for PrefixReuse: the note
@@ -1264,14 +1264,14 @@ func (a *Agent) runTool(ctx context.Context, call provider.ToolCall, emit func(E
 // oldest tool results first, in place, until the total fits or nothing is
 // left that can be shrunk. protect names indices that must never be touched -
 // the system message and the run's own task message. Losing either is what
-// broke the LM Studio template in the first place (see contextReserveShare),
+// broke the chat template in the first place (see contextReserveShare),
 // so no budget overage is worth risking them, even a small one.
 //
 // overhead is what else the request carries: tool definitions and froe's
-// notes. Measured 2026-09-28, ministral-3-8b on LM Studio at 8192: the
+// notes. Measured 2026-09-28, ministral-3-8b at 8192: the
 // messages' text fitted the budget, but ~1.8k tokens of tool definitions and
 // the tool calls' own arguments (whole old_string blocks) did not count, the
-// real prompt overflowed, LM Studio cut the middle of the conversation to
+// real prompt overflowed, the runtime cut the middle of the conversation to
 // fit, and the cut broke Mistral's role order - HTTP 500 on 2 of 7 runs.
 func (a *Agent) fitContext(msgs []provider.Message, protect map[int]bool, overhead int) {
 	ctxMax := a.window()

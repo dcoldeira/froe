@@ -4,14 +4,38 @@ Open work, newest findings first. Every item comes from something observed or
 measured, and says where. The phase-by-phase history that led here is being
 rewritten against fresh measurements and will be added back when it is.
 
-## colibri as the default runtime
+## llama.cpp as the default runtime
 
-**Decided 2026-11-01.** Froe prefers open-source runtimes, and the default was
-LM Studio, a closed binary. [colibri](https://github.com/JustVugg/colibri)
-(Apache 2.0, pure C, Linux/macOS/Windows) becomes the default. It runs
-mixture-of-experts models by keeping the active part in RAM and streaming the
-experts from disk, so a machine's RAM and disk matter more than its VRAM.
-LM Studio stays as a supported runtime with no default roles.
+**Decided 2026-11-06.** Froe ships only open-source runtimes. The same
+Qwen3-Coder-30B-A3B Q4_K_M file, the full eval (3 runs per task, 120 s bar,
+`FIRST_TURN_ALLOWANCE=180`, `prefix_reuse` on for both), RTX 4060 8 GB, 16 GB RAM:
+
+| Runtime | Score | Suite time | Generation | Prompt reading |
+|---|---|---|---|---|
+| llama.cpp b12169, CUDA, `--fit` / `--n-cpu-moe 34` | 22/30 | 11m31s | ~31-35 tok/s | ~425 tok/s |
+| colibri `dev` (both PRs below merged), CUDA | 16/30 | 62m55s | ~5 tok/s | ~22-50 tok/s |
+
+llama.cpp had no timeouts; its eight misses are wrong answers (06, 07, 09, 10),
+so the model, not the runtime, is now the limit. `froe-llamacpp` starts it with
+`--jinja`, one slot (so prefix reuse holds) and an 8K window, and froe runs it
+when the runtime is down. colibri stays supported with no default roles.
+
+To do:
+- Measure Ministral 3 8B on llama.cpp against the 30B: smaller and fully on the
+  GPU, it may be the better pick for `quick`.
+- A larger window: the 30B leaves ~1 GB of VRAM free at 8K; measure what 16K
+  costs in speed (more experts on the CPU).
+- Release binaries and Windows (next section) should bundle or find
+  `llama-server` the way `froe-llamacpp` does on Linux.
+
+## colibri (the default 2026-11-01 to 2026-11-06)
+
+**Decided 2026-11-01, replaced 2026-11-06.** [colibri](https://github.com/JustVugg/colibri)
+(Apache 2.0, pure C, Linux/macOS/Windows) runs mixture-of-experts models by
+keeping the active part in RAM and streaming the experts from disk, so a
+machine's RAM and disk matter more than its VRAM. On an 8 GB card that made it
+too slow to stay the default (above); the integration work below is what made
+`prefix_reuse` exist, and llama.cpp benefits from it too.
 
 Facts that shape the integration, from colibri's own docs (v2.1.0):
 - `coli serve` speaks OpenAI-compatible `/v1/chat/completions` with native tool
@@ -53,18 +77,15 @@ Done:
 ### Upstream (colibri)
 
 - **Tool-call turn re-rendered with an extra newline** (Qwen3-Coder renderer).
-  The model writes `text\n<tool_call>`; the template renders `text\n\n<tool_call>`,
-  so reuse misses on every turn that has text before a call. A patch that
-  renders the model's own single newline when the content carries it, with a
-  test, is on branch `froe/qwen3-coder-tool-call-reuse` of the local checkout.
-  To open as an issue first: it departs from the official template in that one
-  case, which is the maintainers' call.
+  The model writes `text\n<tool_call>`; the template rendered `text\n\n<tool_call>`,
+  so reuse missed on every turn that had text before a call. **Merged** into
+  `dev` 2026-11-05 ([#2535](https://github.com/JustVugg/colibri/pull/2535));
+  the blank-line case for the other Qwen renderers is open as
+  [#2544](https://github.com/JustVugg/colibri/issues/2544).
 - **Rewind for attention-only models.** A new conversation that starts with
-  what the server holds (the same Froe preamble) is read again in full: the
-  engine reuses only when the held state is shorter than the prompt. A model
-  with no recurrent layers could rewind to the shared start (`kv_prefix_common`
-  exists for this). That would make the first turn of every Froe command after
-  the first nearly free.
+  what the server holds (the same Froe preamble) was read again in full.
+  **Merged** into `dev` 2026-11-05 ([#2537](https://github.com/JustVugg/colibri/pull/2537)):
+  the first turn of a repeated task fell from 52-99 s to 2-3 s.
 - Benchmark rows for this laptop, as their protocol asks.
 - `nvcc` 12.4 warnings in `backend_cuda.cu` (their PRs require zero warnings).
 
@@ -74,7 +95,6 @@ To do:
 - ~~Start colibri when it is down~~ Done 2026-11-01: the runtime's `start`
   command (`froe-colibri --background`) runs before falling back to another
   local model, from the CLI and Neovim alike.
-- A `load` command that restarts `coli serve` on another model.
 - A warm project session: one long conversation per project on its own KV slot
   (`--kv-slots`, `cache_slot`), each command a new turn, so the preamble is
   read once. It reverses D8's fresh context per command, so it has to be
@@ -82,10 +102,8 @@ To do:
 - ~~Read the served context window~~ Done: `/v1/models` `context_length`.
 - ~~`froe doctor` counted colibri's own VRAM against it~~ Done: "serving" and
   "not served" verdicts for single-model runtimes.
-- Run the full eval, 3 repeats per model, with `FIRST_TURN_ALLOWANCE` for the
-  cold first turn, and set roles from the result. The turns after the first
-  still have the 120 s bar.
-- Then rewrite `docs/SETUP.md` §4 and the README's eval table from those runs.
+- ~~Run the full eval and set roles from the result~~ Done 2026-11-06: 16/30
+  in 62m55s on `dev`; the roles moved to llama.cpp (above).
 - Upstream: send colibri the benchmark rows (they ask for them, negative results
   included) and any tool-call bugs the eval finds.
 
@@ -98,8 +116,8 @@ together, through shared code.
 To do:
 - Decide what `froe chat` lacks for daily use, and whether the hand-written
   screen (`cmd/froe/screen.go`) keeps up or a TUI library replaces it.
-- Windows: the gaps in the next section, plus `sh -c` in runtime `load`
-  templates, a newline key the Windows console can deliver (Ctrl+Shift+Enter
+- Windows: the gaps in the next section, plus a Windows start script for
+  llama-server (`froe-llamacpp` is bash), a newline key the Windows console can deliver (Ctrl+Shift+Enter
   may not reach the program), ANSI output enabled at start, the config
   directory under `%APPDATA%`, and CRLF files in the edit tool.
 - A Windows CI job running `go test`.
@@ -107,15 +125,16 @@ To do:
 ## Per-task model routing
 
 **Started 2026-09-29, Neovim only so far.** With no model pinned, each task in
-the editor is routed to a `quick` or `careful` model (`internal/resolve/route.go`),
-and froe loads that model itself via the runtime's `load` command
-(`runtimes.toml`). The output split says which class, which model, and why.
+the editor is routed to a `quick` or `careful` model (`internal/resolve/route.go`).
+The runtime's `start` command (`runtimes.toml`) brings a down runtime up; the
+shipped default holds both roles on one llama-server, so there is no switching
+between loaded models. The output split says which class, which model, and why.
 Pinning a model (`:FroeModel <id>`) turns routing off.
 
 Why: on 2026-09-29, one read-only lookup (count the `.py` files under
 `src/qrl/lang`, name the type-check function, name the CLI file) went
-ministral-3-8b-lmstudio 4.7s with a wrong count and unchecked names, against
-bonsai-27b-lmstudio 38.6s and 3/3. Neither model is right for every task, and
+ministral-3-8b 4.7s with a wrong count and unchecked names, against
+bonsai-27b 38.6s and 3/3. Neither model is right for every task, and
 choosing by hand before every task is friction.
 
 Live check the same day, through `froe rpc`: "explain ... a process matrix"

@@ -9,14 +9,14 @@ import (
 )
 
 // settleModel settles the model for one task: the routed one when routing is
-// on, current otherwise, loaded either way. say reports each step as it
-// happens - the route before a slow load, then the load.
+// on, current otherwise. say reports the route as it is decided, before a slow
+// runtime start.
 //
 // Shared by `froe rpc` (Neovim) and `froe chat` so the two front ends cannot
 // route the same task differently (docs/ARCHITECTURE.md §8).
 //
-// A model that fails to load ends the run with the load error rather than
-// quietly using another - a surprise model is worse than a clear failure
+// A model whose runtime cannot be started ends the run with that error rather
+// than quietly using another - a surprise model is worse than a clear failure
 // (resolve.Pick). The class is returned even when a model is pinned: a task
 // that needs checking needs it whichever model answers (agent.RequireEvidence).
 func settleModel(ctx context.Context, cat *registry.Catalogue, current resolve.Choice, routing bool,
@@ -33,12 +33,5 @@ func settleModel(ctx context.Context, cat *registry.Catalogue, current resolve.C
 		say(fmt.Sprintf("%s → %s (%s)", class, c.Model.ID, why))
 	}
 
-	loaded, err := resolve.EnsureLoaded(ctx, choice)
-	if err != nil {
-		return "", current, err
-	}
-	if loaded {
-		say("loaded " + choice.Model.ID)
-	}
 	return class, choice, nil
 }

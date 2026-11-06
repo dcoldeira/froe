@@ -29,8 +29,8 @@ var RoutePreference = map[string][]string{
 //
 // Careful wins any tie. Measured 2026-09-29 on one read-only prompt (count the
 // .py files under src/qrl/lang, name the type-check function, name the file
-// with the CLI entry point): ministral-3-8b-lmstudio answered in 4.7s with a
-// wrong count and names it never checked; bonsai-27b-lmstudio answered in
+// with the CLI entry point): ministral-3-8b answered in 4.7s with a
+// wrong count and names it never checked; bonsai-27b answered in
 // 38.6s, read the files, and got all three right. A plain lookup is therefore
 // careful work, not quick work: the fast model guesses instead of looking.
 func Route(task string, hasSelection bool) (class, why string) {

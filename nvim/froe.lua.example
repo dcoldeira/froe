@@ -17,13 +17,11 @@ return {
       mode = "ask",
       show_reasoning = false,
       keys = false, -- lazy.nvim declares them above
-      -- tufa: bring Bonsai up headless via LM Studio's CLI, pinned to
-      -- parallel 1 explicitly - JIT auto-load defaults to 4, which quarters
-      -- the real usable context window (see STATUS.md).
+      -- Optional: froe starts llama-server itself when it is down. This
+      -- starts it ahead of time, detached, and returns once it answers.
       launch = {
-        "lms", "load", "prism-ml/bonsai-27b",
-        "--gpu", "max", "--context-length", "8192",
-        "--parallel", "1", "--ttl", "1800", "-y",
+        "froe-llamacpp", "--background", "--model",
+        vim.fn.expand("~/models/Qwen3-Coder-30B-A3B-Instruct-Q4_K_M.gguf"),
       },
     })
   end,

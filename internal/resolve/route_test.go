@@ -42,8 +42,8 @@ func TestRoute(t *testing.T) {
 
 func TestRoutePreferenceUsesRouteRoles(t *testing.T) {
 	models := []registry.Model{
-		{ID: "small", Runtime: "lms", SizeGB: 6, Roles: []string{"default", "main", "quick"}},
-		{ID: "big", Runtime: "lms", SizeGB: 3.8, Roles: []string{"main", "heavy", "careful"}},
+		{ID: "small", Runtime: "local", SizeGB: 6, Roles: []string{"default", "main", "quick"}},
+		{ID: "big", Runtime: "local", SizeGB: 3.8, Roles: []string{"main", "heavy", "careful"}},
 	}
 	up := func(string) bool { return true }
 
@@ -59,7 +59,7 @@ func TestRoutePreferenceFallsBackToDefault(t *testing.T) {
 	// No route roles anywhere: both classes must land on the default, so
 	// routing changes nothing for a catalogue that has not opted in.
 	models := []registry.Model{
-		{ID: "only", Runtime: "lms", SizeGB: 6, Roles: []string{"default", "main"}},
+		{ID: "only", Runtime: "local", SizeGB: 6, Roles: []string{"default", "main"}},
 	}
 	up := func(string) bool { return true }
 	for class, pref := range RoutePreference {

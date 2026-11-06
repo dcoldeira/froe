@@ -278,7 +278,7 @@ func TestOpenAICompatSendsVisionContentArrayWhenImageAttached(t *testing.T) {
 // arguments at all (Bonsai called read_file bare). Left as an empty string,
 // the `omitempty` tag on Arguments drops "arguments" from the JSON entirely
 // once this assistant message is replayed back in history on a later turn -
-// LM Studio then rejected the whole request with "Invalid 'messages' in
+// the server then rejected the whole request with "Invalid 'messages' in
 // payload". The wire representation of "no arguments" must be "{}", never a
 // missing field.
 func TestOpenAICompatDefaultsEmptyToolArgumentsToEmptyObject(t *testing.T) {

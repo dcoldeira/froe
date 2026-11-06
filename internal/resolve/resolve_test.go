@@ -92,7 +92,7 @@ func TestPickNeverSubstitutesAnExplicitModel(t *testing.T) {
 	}
 }
 
-// A pinned model on a down runtime runs the runtime's load command and is
+// A pinned model on a down runtime runs the runtime's start command and is
 // picked once the runtime answers, rather than failing on the first probe.
 func TestPickWakesThePinnedModelsRuntime(t *testing.T) {
 	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -101,7 +101,7 @@ func TestPickWakesThePinnedModelsRuntime(t *testing.T) {
 	defer srv.Close()
 	marker := t.TempDir() + "/loaded"
 
-	// The load command stands in for `lms server start && lms load`: it leaves
+	// The start command stands in for froe-llamacpp --background: it leaves
 	// a marker, and the server comes up when the marker appears - so the
 	// runtime is down at the first probe and up only because the command ran.
 	go func() {
@@ -115,7 +115,7 @@ func TestPickWakesThePinnedModelsRuntime(t *testing.T) {
 	}()
 	rt := registry.Runtime{
 		Name: "sleepy", Kind: "openai-compat", BaseURL: "http://" + srv.Listener.Addr().String(),
-		Load: []string{"sh", "-c", "echo {model} > " + marker + " && sleep 0.3"},
+		Start: []string{"sh", "-c", "echo {model} > " + marker + " && sleep 0.3"},
 	}
 	cat := &registry.Catalogue{
 		Runtimes: map[string]registry.Runtime{"sleepy": rt},
@@ -130,15 +130,15 @@ func TestPickWakesThePinnedModelsRuntime(t *testing.T) {
 		t.Errorf("picked %q, want pinned", c.Model.ID)
 	}
 	if b, _ := os.ReadFile(marker); strings.TrimSpace(string(b)) != "vendor/pinned" {
-		t.Errorf("load command got %q, want the serve id vendor/pinned", b)
+		t.Errorf("start command got %q, want the serve id vendor/pinned", b)
 	}
 }
 
-// A pinned model whose runtime stays down after the load command is still an
+// A pinned model whose runtime stays down after the start command is still an
 // error naming the model, never a substitution.
 func TestPickPinnedStillFailsWhenWakeDoesNotHelp(t *testing.T) {
 	rt := deadRuntime("dead")
-	rt.Load = []string{"true"}
+	rt.Start = []string{"true"}
 	cat := &registry.Catalogue{
 		Runtimes: map[string]registry.Runtime{"dead": rt},
 		Models:   []registry.Model{{ID: "wanted", Runtime: "dead"}},
@@ -240,7 +240,7 @@ func TestChooseByRoleFollowsThePreferenceOrder(t *testing.T) {
 
 func TestChooseByRoleSkipsModelsWhoseRuntimeIsDown(t *testing.T) {
 	models := []registry.Model{
-		{ID: "lmstudio-model", Runtime: "lmstudio", SizeGB: 1, Roles: []string{"fast"}},
+		{ID: "llamacpp-model", Runtime: "llamacpp", SizeGB: 1, Roles: []string{"fast"}},
 		{ID: "ollama-model", Runtime: "ollama", SizeGB: 2, Roles: []string{"fast"}},
 	}
 	got, ok := ChooseByRole(models, []string{"fast"}, func(rt string) bool { return rt == "ollama" }, nil)
@@ -270,11 +270,11 @@ func TestDefaultRoleBeatsSmallerMain(t *testing.T) {
 // candidate is picked instead. A runtime that cannot list models keeps all.
 func TestUnpulledModelIsNotPicked(t *testing.T) {
 	models := []registry.Model{
-		{ID: "wanted", Runtime: "lms", SizeGB: 6, Roles: []string{"default", "main"}},
-		{ID: "have", Runtime: "lms", SizeGB: 4, Roles: []string{"main"}},
+		{ID: "wanted", Runtime: "local", SizeGB: 6, Roles: []string{"default", "main"}},
+		{ID: "have", Runtime: "local", SizeGB: 4, Roles: []string{"main"}},
 		{ID: "unlisted", Runtime: "quiet", SizeGB: 9, Roles: []string{"main"}},
 	}
-	present := map[string]map[string]bool{"lms": {"have": true}}
+	present := map[string]map[string]bool{"local": {"have": true}}
 	live := func(string) bool { return true }
 	m, _ := ChooseByRole(keepPresent(models, present), RolePreference, live, nil)
 	if m.ID != "have" {

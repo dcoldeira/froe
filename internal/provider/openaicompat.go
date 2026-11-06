@@ -17,7 +17,7 @@ import (
 )
 
 // OpenAICompat speaks the /v1/chat/completions shape, which is the lingua
-// franca of local inference (D2): llama.cpp's llama-server, Ollama, LM Studio,
+// franca of local inference (D2): llama.cpp's llama-server, Ollama, colibri,
 // vLLM, Mistral and DeepSeek all expose it. One adapter, six backends.
 type OpenAICompat struct {
 	name    string
@@ -119,7 +119,7 @@ func (c *OpenAICompat) buildBody(req Request) map[string]any {
 			// A model can emit a tool call with no arguments at all (observed:
 			// Bonsai calling read_file bare). Left as "", Arguments'
 			// `omitempty` tag drops the field from the JSON entirely once this
-			// message is replayed back in history on a later turn - LM Studio
+			// message is replayed back in history on a later turn - a strict server
 			// then rejects the whole request as a malformed payload. "{}" is
 			// what an empty-but-valid arguments object looks like on the wire.
 			//
@@ -373,8 +373,8 @@ func (c *OpenAICompat) stream(ctx context.Context, resp *http.Response, start ti
 
 // explainHTTPError turns a backend's raw JSON error into something actionable.
 //
-// A runtime can be up and still unable to serve: LM Studio answers /v1/models
-// happily with no model loaded, so the probe says "running" and the request
+// A runtime can be up and still unable to serve: a server can answer
+// /v1/models with no model loaded, so the probe says "running" and the request
 // then fails. Printing the raw blob leaves the user to work that out; naming the
 // fix does not.
 func explainHTTPError(runtime string, status int, body []byte) string {
@@ -395,12 +395,10 @@ func explainHTTPError(runtime string, status int, body []byte) string {
 		strings.Contains(lower, "not found") && status == http.StatusNotFound:
 		hint := "load a model first"
 		switch runtime {
-		case "lmstudio":
-			hint = "run: lms load <model>   (lms ls lists what is downloaded)"
 		case "ollama":
 			hint = "run: ollama pull <model>"
 		case "llamacpp", "llamacpp-prismml":
-			hint = "start llama-server with -m <path-to.gguf>"
+			hint = "start it with froe-llamacpp --model <path-to.gguf>"
 		}
 		return fmt.Sprintf("%s has no model loaded - %s", runtime, hint)
 

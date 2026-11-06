@@ -15,10 +15,16 @@ notes    = "num_ctx defaults to 4096 and SILENTLY TRUNCATES. Always set it expli
 
 [runtime.llamacpp]
 kind     = "openai-compat"
-binary   = "~/src/llama.cpp/build/bin/llama-server"
-base_url = "http://localhost:8080/v1"
+base_url = "http://127.0.0.1:8080/v1"
 grammar  = "yes"
-notes    = "Upstream llama.cpp. VERIFIED 2026-09-11: loads plain Q1_0 Bonsai - the PrismML fork is NOT required for that build. Start with --jinja --reasoning off, which upstream exposes and LM Studio does not."
+managed  = true
+serves_one = true          # llama-server holds the one model it was started with
+prefix_reuse = true        # with one slot, a turn that extends the conversation reads only what is new
+# Down when froe needs it: froe-llamacpp starts it (--jinja, --parallel 1,
+# -c 8192, --fit sizing the GPU/CPU split) and returns once the model answers.
+# The model's `path` is the GGUF file.
+start    = ["froe-llamacpp", "--background", "--model", "{path}", "--model-id", "{model}", "--port", "{port}"]
+notes    = "Upstream llama.cpp (MIT), github.com/ggml-org/llama.cpp. The default runtime. MEASURED 2026-11-06 on the reference laptop (RTX 4060 8 GB, 16 GB RAM), release b12169 with CUDA: Qwen3-Coder-30B-A3B Q4_K_M at ~31-35 tok/s generation and ~425 tok/s prompt reading, 22/30 on the eval in 11m31s - the same GGUF on colibri scored 16/30 in 62m55s. Reports its window at /props."
 
 [runtime.llamacpp-prismml]
 kind     = "openai-compat"
@@ -38,20 +44,6 @@ prefix_reuse = true        # a turn that extends the held conversation reads onl
 # backend) and returns once the model answers. The model's `path` says where.
 start    = ["froe-colibri", "--background", "--model", "{path}", "--model-id", "{model}", "--port", "{port}"]
 notes    = "Open source (Apache 2.0), github.com/JustVugg/colibri. Start with: COLI_PARK=0 coli serve --model <dir> --model-id <runtime_id> --auto-tier --ctx 8192. COLI_PARK=0 matters: otherwise a new task shorter than the held conversation is treated as a side question, the old conversation is kept, and the new one is re-read on every turn. One model per server, so there is no load command and routing stays on the served model. Reports its window at /v1/models (context_length). Port 8000 is its default; move it with --port and a base_url overlay."
-
-[runtime.lmstudio]
-kind     = "openai-compat"
-base_url = "http://localhost:1234/v1"
-grammar  = "unverified"
-managed  = true
-notes    = "Headless via `lms daemon up`. Ships kernels ahead of upstream - the zero-effort path to Bonsai. Closed binary: local inference but not auditable."
-# Unload first: an 8 GB card holds one of these models, and two loaded models
-# confuse the context probe. Parallel 1 keeps the whole 8192 window - JIT
-# auto-load defaults to 4 parallel slots, which quarters it.
-# Server start first: lms load works with the HTTP server stopped and leaves
-# it stopped (measured 2026-10-01 after `lms server stop` - Bonsai loaded, port
-# 1234 still refused). Starting a running server is a no-op that exits 0.
-load     = ["sh", "-c", "lms server start && lms unload --all && lms load {model} --gpu max --context-length 8192 --parallel 1 --ttl 1800 -y"]
 
 [runtime.mistral]
 kind     = "openai-compat"

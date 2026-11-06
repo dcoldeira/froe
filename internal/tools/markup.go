@@ -16,7 +16,7 @@ var toolCallMarkup = []string{
 }
 
 // leakedMarkup refuses text that carries tool-call markup the file does not
-// already hold. Measured 2026-09-24: bonsai-27b-lmstudio finished all four
+// already hold. Measured 2026-09-24: bonsai-27b finished all four
 // sites of eval task 07, then wrote a new_string ending in
 // "</parameter></function><tool_call>..." - the tail of its own call spilled
 // into the argument, the file stopped parsing, and the run timed out. A file

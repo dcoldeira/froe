@@ -60,23 +60,19 @@ type Runtime struct {
 	APIKeyEnv string   `toml:"api_key_env"` // hosted backends: env var holding the key
 	Managed   bool     `toml:"managed"`     // true if something else owns the process
 	Notes     string   `toml:"notes"`
-	// Load is the command that makes this runtime serve a model, with
-	// "{model}" replaced by the model's ServeID. Per-task routing runs it when
-	// the routed model is not the one loaded. Empty means froe cannot switch
-	// models on this runtime and routing stays on the loaded one.
-	Load []string `toml:"load"`
 	// ServesOne marks a server that holds a single model, so its model list
-	// is exactly what is loaded rather than what is downloaded (colibri).
+	// is exactly what is loaded rather than what is downloaded (llama.cpp,
+	// colibri).
 	ServesOne bool `toml:"serves_one"`
 	// PrefixReuse marks a server that skips re-reading a prompt when the
 	// request extends the conversation it already holds, and re-reads all of
-	// it otherwise (colibri). froe then keeps a run's history append-only, so
+	// it otherwise (llama.cpp with one slot, colibri). froe then keeps a run's history append-only, so
 	// each turn pays only for what is new.
 	PrefixReuse bool `toml:"prefix_reuse"`
 	// Start brings a runtime that is down up, serving one model, and returns
 	// once it answers. "{model}" is the model's ServeID, "{path}" its Path,
-	// "{port}" the port of BaseURL. Unlike Load it never runs against a
-	// runtime that is already up. Empty means froe cannot start it.
+	// "{port}" the port of BaseURL. It never runs against a runtime that is
+	// already up. Empty means froe cannot start it.
 	Start []string `toml:"start"`
 }
 
@@ -93,9 +89,9 @@ func (r Runtime) Hosted() bool { return r.APIKeyEnv != "" }
 type Model struct {
 	ID string `toml:"id"`
 	// RuntimeID is what the BACKEND calls this model, when that differs from
-	// the id froe uses. LM Studio serves what we call "bonsai-27b-lmstudio"
-	// under "prism-ml/bonsai-27b"; without the distinction, presence checks
-	// report a loaded model as missing. Empty means the two are the same.
+	// the id froe uses. llama-server serves what we call
+	// "qwen3-coder-30b-llamacpp" under its --alias "qwen3-coder-30b"; without
+	// the distinction, presence checks report a loaded model as missing. Empty means the two are the same.
 	RuntimeID string `toml:"runtime_id"`
 	// Path is where the model lives on disk, for a runtime whose Start
 	// command takes it ("{path}"). A leading ~ is the home directory.
@@ -110,7 +106,7 @@ type Model struct {
 	ToolStrategy ToolStrategy `toml:"tool_strategy"`
 	Vision       bool         `toml:"vision"`
 	// CPUOnly marks a model deliberately pinned away from the GPU (Ollama
-	// num_gpu=0, LM Studio --gpu 0). On a small card this is how a fast model
+	// num_gpu=0, llama.cpp -ngl 0). On a small card this is how a fast model
 	// coexists with a GPU-resident main model instead of fighting it for VRAM.
 	CPUOnly     bool     `toml:"cpu_only"`
 	ThinkBudget int      `toml:"thinking_budget_tokens"`

@@ -12,17 +12,18 @@ import (
 	"github.com/dcoldeira/froe/internal/registry"
 )
 
-// lmStudio serves LM Studio's native model list with two models loaded.
-func lmStudio(t *testing.T) *httptest.Server {
+// twoModels serves an OpenAI-style model list with two models, each with
+// the window it was started with (context_length, as colibri reports it).
+func twoModels(t *testing.T) *httptest.Server {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/v0/models" {
+		if r.URL.Path != "/v1/models" {
 			http.NotFound(w, r)
 			return
 		}
 		w.Write([]byte(`{"data":[
-			{"id":"prism-ml/bonsai-27b","state":"loaded","loaded_context_length":4096},
-			{"id":"mistralai/ministral-3-8b","state":"loaded","loaded_context_length":16384}]}`))
+			{"id":"flint","context_length":4096},
+			{"id":"qwen3-coder-30b","context_length":16384}]}`))
 	}))
 	t.Cleanup(srv.Close)
 	return srv
@@ -31,9 +32,9 @@ func lmStudio(t *testing.T) *httptest.Server {
 // The runtime is asked about the model by ITS name (runtime_id), so with two
 // models loaded the right window comes back.
 func TestEffectiveContextAsksTheRuntimeByItsOwnName(t *testing.T) {
-	srv := lmStudio(t)
-	m := registry.Model{ID: "ministral-3-8b-lmstudio", RuntimeID: "mistralai/ministral-3-8b", CtxMax: 262144}
-	rt := registry.Runtime{Name: "lmstudio", BaseURL: srv.URL + "/v1"}
+	srv := twoModels(t)
+	m := registry.Model{ID: "qwen3-coder-30b-colibri", RuntimeID: "qwen3-coder-30b", CtxMax: 262144}
+	rt := registry.Runtime{Name: "colibri", BaseURL: srv.URL + "/v1"}
 	if got := effectiveContext(context.Background(), m, rt, style{}, true); got != 16384 {
 		t.Fatalf("effective context = %d, want the loaded 16384", got)
 	}
@@ -43,7 +44,7 @@ func TestEffectiveContextAsksTheRuntimeByItsOwnName(t *testing.T) {
 // maximum - that would disable every context guard at once.
 func TestEffectiveContextIsConservativeWhenALocalRuntimeIsSilent(t *testing.T) {
 	m := registry.Model{ID: "m", CtxMax: 262144}
-	rt := registry.Runtime{Name: "lmstudio", BaseURL: "http://127.0.0.1:1/v1"}
+	rt := registry.Runtime{Name: "llamacpp", BaseURL: "http://127.0.0.1:1/v1"}
 	if got := effectiveContext(context.Background(), m, rt, style{}, true); got != conservativeContext {
 		t.Fatalf("effective context = %d, want %d", got, conservativeContext)
 	}

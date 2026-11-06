@@ -12,7 +12,7 @@ const (
 // thinkFilter separates inline <think> blocks out of a streamed content field.
 //
 // Well-behaved backends put reasoning in `reasoning_content` and this never
-// triggers. LM Studio serving Bonsai does not always: when a thinking budget
+// triggers. Bonsai, as one runtime served it, did not always: when a thinking budget
 // truncates the reasoning, the remainder arrives inline in `content`, tags and
 // all, and lands on the user's terminal. Measured 2026-09-11 — a one-line answer
 // came back preceded by a paragraph of deliberation and a stray `</think>`.

@@ -10,7 +10,7 @@ cites.
 
 Source code should not have to leave the machine. A local model is the default
 path. OpenAI-compatible `/v1/chat/completions` is the one protocol for local
-runtimes, so llama.cpp, Ollama, LM Studio and vLLM share one adapter. The cloud
+runtimes, so llama.cpp, Ollama, colibri and vLLM share one adapter. The cloud
 fallback is Mistral, which is EU-hosted, for work that governance allows off
 the machine.
 
@@ -160,7 +160,7 @@ drops. froe handles each quirk seen in practice where it happens:
   (HTTP 500) is retried up to twice, with a note.
 - **Strict chat templates:** froe's notes are attached to the tool result.
   Mistral's template refuses a user turn after a tool result, which ended 25
-  of 30 runs on LM Studio.
+  of 30 runs.
 - **Leaked markup:** edits carrying chat-template markup the file did not
   already contain are refused.
 

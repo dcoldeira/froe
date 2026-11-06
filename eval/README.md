@@ -6,8 +6,8 @@ answer contains a required string. No human judgement is involved, so results
 compare across models and across changes to froe itself.
 
 ```bash
-MODEL=ministral-3-8b-lmstudio bash eval/run.sh          # full suite, 3 runs per task
-MODEL=bonsai-27b-lmstudio ONLY=07-multi-site bash eval/run.sh
+MODEL=qwen3-coder-30b-llamacpp bash eval/run.sh                 # full suite, 3 runs per task
+MODEL=qwen3-coder-30b-colibri FIRST_TURN_ALLOWANCE=180 ONLY=07-multi-site bash eval/run.sh
 ```
 
 | Variable | Default | Meaning |
@@ -79,6 +79,36 @@ pass count.
 
 ## Latest results
 
+### llama.cpp against colibri, same model (2026-11-06)
+
+Qwen3-Coder-30B-A3B, the same Q4_K_M file on both runtimes, 8K context,
+`prefix_reuse` on for both, 3 runs per task, `FIRST_TURN_ALLOWANCE=180`, on an
+RTX 4060 8 GB laptop with 16 GB RAM. One runtime at a time, nothing else running.
+
+| Task | llama.cpp b12169 (CUDA) | Median secs (first turn) | colibri `dev` 50ec53ee (CUDA) | Median secs (first turn) |
+|---|---|---|---|---|
+| 01-fix-panic | 3/3 | 24 (1) | 2/3 | 96 (3) |
+| 02-find-symbol | 3/3 | 1 | 3/3 | 1 |
+| 03-add-function | 3/3 | 19 (1) | 1/3 | 191 (48) |
+| 04-git-history | 3/3 | 2 | 3/3 | 6 (1) |
+| 05-multi-file | 3/3 | 29 (1) | 3/3 | 122 (44) |
+| 06-wrong-path | 2/3 | 43 (1) | 1/3 | 245 (5) |
+| 07-multi-site | 1/3 | 50 | 0/3 | 300 |
+| 08-large-file | 3/3 | 22 (2) | 2/3 | 60 (6) |
+| 09-locate-wrong-path | 1/3 | 15 (6) | 1/3 | 40 (8) |
+| 10-locate-real-shape | 0/3 | 19 (9) | 0/3 | 46 |
+| **total** | **22/30** | **11m31s** | **16/30** | **62m55s** |
+
+- **Every llama.cpp failure is a wrong result**; none timed out or ran too
+  slow. On colibri, 7 of the 14 failures are timeouts or too-slow runs.
+- **Speed is the difference.** llama-bench on the same file: ~35 tok/s
+  generation and ~425 tok/s prompt reading at `--n-cpu-moe 34` (26 runs out of
+  VRAM; 38 gives 33 tok/s, 42 gives 27). colibri: ~5 tok/s and ~22-50 tok/s.
+  `froe-llamacpp` leaves the split to `--fit`, which measured ~31-32 tok/s warm.
+- **What is left is the model.** 07 now passes once; 09 and 10 still answer
+  from the pre-search in one or two turns at the wrong place.
+- llama.cpp needs no first-turn allowance: its first turns took 0-9 s.
+
 ### colibri (2026-11-01)
 
 The first run on an open-source runtime. Qwen3-Coder-30B-A3B (Q4_K_M GGUF) on
@@ -148,20 +178,14 @@ s cold), and the suite took 56 minutes instead of 64. Four of the twelve
 failures are too-slow by 2-33 s on runs of 12-16 turns: at ~5 tokens a second,
 the bar decides them, and which runs land under it varies.
 
-### LM Studio and Ollama (2026-09-25)
+### Ollama (2026-09-25)
 
-Same froe build for every row, 8K context, 3 runs per task, 120 s
-bar, on an RTX 4060 8 GB laptop with 15 GB RAM.
+8K context, 3 runs per task, 120 s bar, on an RTX 4060 8 GB laptop with 15 GB
+RAM, with the froe build of that day.
 
 | Model | Runtime | Score | Suite time |
 |---|---|---|---|
-| bonsai-27b (Q1_0) | LM Studio | 24/30 | 23m19s |
-| **ministral-3 8B (Q4_K_M)** | **LM Studio** | **23/30** | **6m39s** |
-| ministral-3 14B (Q4_K_M) | LM Studio | 21/30 | 19m56s |
-| ministral-3 3B (Q4_K_M) | LM Studio | 19/30 | 3m39s |
 | ministral-3 8B (Q4_K_M) | Ollama | 19/30 | 6m24s |
 
-- **07-multi-site fails for every model.**
-- **Ministral 8B is froe's default.** It matches Bonsai within one run at 3.5× the speed.
-- **The 14B spills past 8 GB of VRAM** and times out on 03.
-- **The runtime matters as much as the model.** On Ollama, the same 8B weights lose runs because Ollama's tool-call parser rejects raw tab characters inside the model's Go code and answers HTTP 500. Switching froe to its text tool-call protocol made it worse (8/30), because Ollama still intercepts the calls.
+- **07-multi-site failed.**
+- **The runtime matters as much as the model.** On Ollama, the 8B loses runs because Ollama's tool-call parser rejects raw tab characters inside the model's Go code and answers HTTP 500. Switching froe to its text tool-call protocol made it worse (8/30), because Ollama still intercepts the calls.

@@ -19,6 +19,7 @@ fmt:
 install: build
 	install -Dm755 froe $(HOME)/.local/bin/froe
 	install -Dm755 scripts/froe-colibri $(HOME)/.local/bin/froe-colibri
+	install -Dm755 scripts/froe-llamacpp $(HOME)/.local/bin/froe-llamacpp
 
 doctor: build
 	./froe doctor

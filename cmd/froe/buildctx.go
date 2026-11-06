@@ -24,7 +24,7 @@ func buildContext(ctx context.Context, dir string, task string, ctxMax int, st s
 // effectiveContext is the window the model is ACTUALLY loaded with.
 //
 // The registry records what a model supports — Bonsai advertises 262144 — while
-// the runtime decides what it loads, and LM Studio's default is 8192. Every
+// the runtime decides what it loads, and froe-llamacpp starts at 8192. Every
 // budget in the program must use this number, not the registry's: using the
 // theoretical figure for the tool-result cap let a 234 KB file through and
 // overflowed the window at 22787 tokens even after the cap existed.
@@ -47,9 +47,8 @@ func effectiveContext(ctx context.Context, m registry.Model, rt registry.Runtime
 		// never "the registry maximum". Assuming the maximum sets
 		// clampResult's cap and fitContext's budget far above the real
 		// window and disables both at once - measured on a real-issue run
-		// where an expired LM Studio TTL meant nothing was loaded at probe
-		// time and a 48 KB read killed the run at 28709 tokens against a
-		// JIT-loaded 8192.
+		// where the runtime had unloaded the model at probe time and a 48 KB
+		// read killed the run at 28709 tokens against a reloaded 8192.
 		if !quiet {
 			fmt.Fprintf(os.Stderr, "%s\n", st.yellow(fmt.Sprintf(
 				"  context: %s would not say what %s is loaded with - budgeting for %d, not the registry's %d. "+
@@ -66,7 +65,7 @@ func effectiveContext(ctx context.Context, m registry.Model, rt registry.Runtime
 }
 
 // conservativeContext is the window assumed for a local runtime that will not
-// report one. It matches llama.cpp's and LM Studio's own default load size, so
+// report one. It matches the window froe-llamacpp starts llama-server with, so
 // it is the least-bad guess when the backend is silent.
 const conservativeContext = 8192
 

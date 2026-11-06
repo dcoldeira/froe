@@ -32,7 +32,7 @@
                     ┌─────┴──────┐               GBNF
                     │            │               grammar)
               llama-server    Ollama
-              LM Studio       vLLM
+              colibri         vLLM
               Mistral         DeepSeek
 ```
 
@@ -97,7 +97,7 @@ uniform across backends. `ctx` cancellation must abort the in-flight HTTP
 request; on llama.cpp that also frees the slot.
 
 **Why OpenAI-compatible is the lingua franca:** llama.cpp's `llama-server`,
-Ollama, LM Studio, vLLM, Mistral and DeepSeek all expose
+Ollama, colibri, vLLM, Mistral and DeepSeek all expose
 `/v1/chat/completions`. One adapter, six backends, and any future runtime that
 follows the convention works on day one. Anthropic does not follow it, so it
 gets its own adapter. llama.cpp gets a *second*, native adapter because its

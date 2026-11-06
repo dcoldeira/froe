@@ -14,7 +14,7 @@ import (
 const maxImageBytes = 20 * 1024 * 1024
 
 // imageMediaTypes maps a file extension to its MIME type. Only formats every
-// vision-capable backend in the registry (LM Studio, Anthropic) actually
+// vision-capable backend in the registry (llama.cpp, Ollama, Anthropic) actually
 // accepts - an unlisted extension is refused rather than guessed.
 var imageMediaTypes = map[string]string{
 	".png":  "image/png",

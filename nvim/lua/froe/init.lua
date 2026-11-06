@@ -22,10 +22,11 @@ M.config = {
   show_reasoning = false,
   keys = true,
   -- Command that brings the model runtime up, as a list e.g.
-  -- {"lms", "load", "prism-ml/bonsai-27b", "--gpu", "max",
-  --  "--context-length", "8192", "--parallel", "1", "--ttl", "1800", "-y"}.
-  -- Machine-specific (model key, VRAM budget), so it belongs in your own
-  -- config, not a default here. Empty disables :FroeLaunch.
+  -- {"froe-llamacpp", "--background", "--model",
+  --  vim.fn.expand("~/models/Qwen3-Coder-30B-A3B-Instruct-Q4_K_M.gguf")}.
+  -- Machine-specific (model file, port), so it belongs in your own config,
+  -- not a default here. Optional: froe starts the default runtime itself
+  -- when it is down. Empty disables :FroeLaunch.
   launch = {},
 }
 
@@ -177,8 +178,8 @@ local function visual_selection()
   }
 end
 
---- Bring the model runtime up via config.launch, e.g. `lms load ...` for a
---- local LM Studio model. Independent of the froe process/RPC handshake -
+--- Bring the model runtime up via config.launch, e.g. `froe-llamacpp
+--- --background ...` for llama.cpp. Independent of the froe process/RPC handshake -
 --- this just gets the backend ready before :Froe tries to talk to it.
 function M.launch()
   if #M.config.launch == 0 then

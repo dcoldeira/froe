@@ -10,13 +10,13 @@ import (
 // models that fill the same preference lists further down.
 var (
 	fbRuntimes = map[string]registry.Runtime{
-		"lmstudio": {Name: "lmstudio"},
+		"llamacpp": {Name: "llamacpp"},
 		"ollama":   {Name: "ollama"},
 		"mistral":  {Name: "mistral", APIKeyEnv: "MISTRAL_API_KEY"},
 	}
 	fbModels = []registry.Model{
-		{ID: "ministral-3-8b-lmstudio", Runtime: "lmstudio", Roles: []string{"default", "main", "quick"}, SizeGB: 6},
-		{ID: "bonsai-27b-lmstudio", Runtime: "lmstudio", Roles: []string{"main", "heavy", "careful"}, SizeGB: 4.7},
+		{ID: "local-quick", Runtime: "llamacpp", Roles: []string{"default", "main", "quick"}, SizeGB: 6},
+		{ID: "local-careful", Runtime: "llamacpp", Roles: []string{"main", "heavy", "careful"}, SizeGB: 4.7},
 		{ID: "ministral-3:8b", Runtime: "ollama", Roles: []string{"main"}, SizeGB: 6},
 		{ID: "codestral-latest", Runtime: "mistral", Roles: []string{"main"}, SizeGB: 0},
 		{ID: "mistral-large-latest", Runtime: "mistral", Roles: []string{"heavy"}, SizeGB: 0},
@@ -40,13 +40,13 @@ func TestFallbackFromLocalToHostedIsCaught(t *testing.T) {
 		up    []string
 		want  string // the local model reported as left behind, "" for none
 	}{
-		// The 2026-10-01 failure, both classes: LM Studio asleep, Mistral up.
-		{"careful, lmstudio down", RouteCareful, []string{"mistral"}, "bonsai-27b-lmstudio"},
-		{"quick, lmstudio down", RouteQuick, []string{"mistral"}, "ministral-3-8b-lmstudio"},
+		// The 2026-10-01 failure, both classes: the local runtime asleep, Mistral up.
+		{"careful, local down", RouteCareful, []string{"mistral"}, "local-careful"},
+		{"quick, local down", RouteQuick, []string{"mistral"}, "local-quick"},
 		// Everything local down and no hosted key: nothing at all is picked.
-		{"nothing up", RouteCareful, nil, "bonsai-27b-lmstudio"},
-		// LM Studio up: the intended model is picked, nothing to catch.
-		{"lmstudio up", RouteCareful, []string{"lmstudio", "mistral"}, ""},
+		{"nothing up", RouteCareful, nil, "local-careful"},
+		// The local runtime up: the intended model is picked, nothing to catch.
+		{"local up", RouteCareful, []string{"llamacpp", "mistral"}, ""},
 		// Falls back to another LOCAL model: the work stays on this machine.
 		{"quick, ollama takes over", RouteQuick, []string{"ollama", "mistral"}, ""},
 	} {

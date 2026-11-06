@@ -70,12 +70,12 @@ func TestHasRole(t *testing.T) {
 	}
 }
 
-// The backend's name for a model can differ from ours. LM Studio serves
-// "bonsai-27b-lmstudio" as "prism-ml/bonsai-27b"; conflating the two made a
-// loaded model report as missing.
+// The backend's name for a model can differ from ours. llama-server serves
+// "qwen3-coder-30b-llamacpp" under its --alias "qwen3-coder-30b"; conflating
+// the two made a loaded model report as missing.
 func TestServeIDPrefersRuntimeID(t *testing.T) {
-	m := Model{ID: "bonsai-27b-lmstudio", RuntimeID: "prism-ml/bonsai-27b"}
-	if got := m.ServeID(); got != "prism-ml/bonsai-27b" {
+	m := Model{ID: "qwen3-coder-30b-llamacpp", RuntimeID: "qwen3-coder-30b"}
+	if got := m.ServeID(); got != "qwen3-coder-30b" {
 		t.Errorf("ServeID = %q", got)
 	}
 	plain := Model{ID: "qwen2.5-coder:7b"}
@@ -84,19 +84,23 @@ func TestServeIDPrefersRuntimeID(t *testing.T) {
 	}
 }
 
-// The shipped LM Studio entry must carry the backend's own name.
-func TestShippedLMStudioModelHasRuntimeID(t *testing.T) {
+// The shipped default must carry the name llama-server serves it under, and
+// the GGUF path froe-llamacpp starts it from.
+func TestShippedDefaultModelHasRuntimeIDAndPath(t *testing.T) {
 	c, err := Load("")
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, m := range c.Models {
-		if m.ID == "bonsai-27b-lmstudio" {
+		if m.ID == "qwen3-coder-30b-llamacpp" {
 			if m.RuntimeID == "" {
-				t.Error("bonsai-27b-lmstudio has no runtime_id; presence checks will fail")
+				t.Error("qwen3-coder-30b-llamacpp has no runtime_id; presence checks will fail")
+			}
+			if m.Path == "" {
+				t.Error("qwen3-coder-30b-llamacpp has no path; froe cannot start llama-server for it")
 			}
 			return
 		}
 	}
-	t.Fatal("bonsai-27b-lmstudio missing from the catalogue")
+	t.Fatal("qwen3-coder-30b-llamacpp missing from the catalogue")
 }

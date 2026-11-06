@@ -89,13 +89,12 @@ rather than letting you discover it during a task.
 
 > **`bonsai-27b` — verified 2026-09-11.** A 1.125 bits-per-weight *binary*
 > quantisation of Qwen3.6-27B by PrismML. Apache 2.0. GGUF at
-> `prism-ml/Bonsai-27B-gguf`; LM Studio merely catalogues it, it is not
-> exclusive to LM Studio. Binary GGUF is **3.53 GiB** on disk (ternary 6.66 GiB,
+> `prism-ml/Bonsai-27B-gguf`. Binary GGUF is **3.53 GiB** on disk (ternary 6.66 GiB,
 > vision tower +0.9 GiB); peak memory 5.2 GB at 4K context, 5.6 GB at 10K,
 > 11.6 GB at 100K. 262K context, native OpenAI-style tool calling, vision,
 > reasons by default with a configurable `thinking_budget_tokens`.
 >
-> **Measured on an RTX A500 laptop (4 GB VRAM) 2026-09-11** via LM Studio's plain-`Q1_0` build:
+> **Measured on an RTX A500 laptop (4 GB VRAM) 2026-09-11**, plain-`Q1_0` build, on a GPU runtime froe no longer supports:
 > loads in 5.02 s at 4.41 GiB, occupying 3838 of 4096 MiB VRAM — effectively
 > GPU-resident. Generation is nonetheless **~4.5 tok/s**, well under the ~8–15
 > estimated here from bandwidth alone, and far under the vendor's 44 tok/s on an
@@ -110,13 +109,9 @@ rather than letting you discover it during a task.
 > `reasoning_effort` were all tested and are ALL ignored; only
 > `thinking_budget_tokens` works. Any provider adapter must send it.
 >
-> **The PrismML fork may not be needed.** `lms get prism-ml/bonsai-27b` resolves
-> to `lmstudio-community/Bonsai-27B-GGUF` — plain `Q1_0`, converted from upstream
-> llama.cpp — and it runs. The fork is required only for the `Q1_0_g128` build.
->
-> **It requires the PrismML llama.cpp fork** (`github.com/PrismML-Eng/llama.cpp`,
-> `Q1_0_g128` hybrid-attention kernels). Upstream llama.cpp cannot load it.
-> See §5.
+> **The PrismML fork is needed only for the `Q1_0_g128` build**
+> (`github.com/PrismML-Eng/llama.cpp`, hybrid-attention kernels). A plain `Q1_0`
+> conversion made with upstream llama.cpp loads on upstream. See §5.
 
 ## 4. Router
 
@@ -131,26 +126,26 @@ Maps task kind → role → model, per machine:
 Always overridable: `froe --model <id>`, or pin per-project in `FROE.md`.
 Automatic routing that cannot be overridden is worse than no routing.
 
-**What exists (2026-09-29):** the editor (`froe rpc`) routes each task when no
-model is pinned. `internal/resolve/route.go` sorts the task into `quick` or
-`careful` by word patterns and gives the reason; the `quick` and `careful`
-roles in `models.toml` name the models (`ministral-3-8b-lmstudio` and
-`bonsai-27b-lmstudio` on the reference laptop), falling back to `default`. When
-the routed model is not loaded, froe runs the runtime's `load` command from
-`runtimes.toml`. Open work is in `docs/ROADMAP.md`.
+**What exists (2026-09-29, updated 2026-11-06):** the editor (`froe rpc`) and
+`froe chat` route each task when no model is pinned. `internal/resolve/route.go`
+sorts the task into `quick` or `careful` by word patterns and gives the reason;
+the `quick` and `careful` roles in `models.toml` name the models, falling back to
+`default`. The shipped default, `qwen3-coder-30b-llamacpp`, holds all of them:
+llama-server serves one model, so both routes go to it. When its runtime is
+down, froe runs the runtime's `start` command from `runtimes.toml`. Open work is
+in `docs/ROADMAP.md`.
 
 ## 5. Runtime backends — the decision
 
 Target the **OpenAI-compatible `/v1/chat/completions` shape** as the primary
-abstraction. That single adapter covers llama.cpp, Ollama, LM Studio, vLLM,
+abstraction. That single adapter covers llama.cpp, Ollama, colibri, vLLM,
 Mistral and DeepSeek, and any future runtime following the convention.
 
 | Runtime | Verdict |
 |---|---|
-| **llama.cpp (`llama-server`)** | **Recommended local backend.** Everything else wraps it. Exposes GBNF grammars (guaranteed-valid tool calls — the single biggest local reliability win), precise `--n-gpu-layers` control, KV-cache quantisation, and speculative decoding. Pairing a 27B target with the already-installed 1.5B as a draft model is a plausible 1.5–2× speedup on the workstation |
+| **llama.cpp (`llama-server`)** | **The default (since 2026-11-06).** MIT. Everything else wraps it. `froe-llamacpp` starts it the way froe needs (`--jinja`, one slot, 8K window, `--fit` for the GPU/CPU split). Measured on an 8 GB card with Qwen3-Coder-30B-A3B: ~31-35 tok/s generation, 22/30 on the eval in 11m31s. Exposes GBNF grammars (guaranteed-valid tool calls — the single biggest local reliability win), precise `--n-gpu-layers` control, KV-cache quantisation, and speculative decoding. Pairing a 27B target with the already-installed 1.5B as a draft model is a plausible 1.5–2× speedup on the workstation |
 | **Ollama** | **Supported and kept working** — already installed, lowest friction, good model management. Two things to hard-code around: `num_ctx` defaults to 4096 and **silently truncates** (this reads as "the model got stupid" when it is actually your context being cut off), and no GBNF exposure, so it falls back to `native` or `react` tool calling |
-| **LM Studio** | **Supported, not recommended.** It is a **closed binary**: inference stays local, so code never leaves the machine, but the app that sees your source cannot be audited, which matters given why this project exists. It runs headless (`lms daemon up`) behind the OpenAI-compatible adapter, so it needs no special code. It was the default runtime until 2026-11 because it shipped Bonsai's 1-bit kernels ahead of upstream; upstream llama.cpp has loaded that build since 2026-09-11 |
-| **colibri** | **Becoming the default (in progress, 2026-11).** Open source (Apache 2.0), pure C, runs on Linux, macOS and Windows. It runs large mixture-of-experts models by keeping the active part in RAM and streaming experts from disk, and reads published GGUFs directly. OpenAI-compatible `/v1` from `coli serve`, with native tool calling on its chat engines. No grammar-constrained sampling (its GBNF support only drafts tokens), so tool calls go through the model's native format. One model per server. See `docs/ROADMAP.md` |
+| **colibri** | **Supported; the default from 2026-11-01 to 2026-11-06.** On an 8 GB card the same model ran about six times slower than on llama.cpp (16/30 in 62m55s), because most experts run on the CPU at ~5 tok/s. Open source (Apache 2.0), pure C, runs on Linux, macOS and Windows. It runs large mixture-of-experts models by keeping the active part in RAM and streaming experts from disk, and reads published GGUFs directly. OpenAI-compatible `/v1` from `coli serve`, with native tool calling on its chat engines. No grammar-constrained sampling (its GBNF support only drafts tokens), so tool calls go through the model's native format. One model per server. See `docs/ROADMAP.md` |
 | **Jan.ai** | Same: llama.cpp underneath, GUI-first, thinner ecosystem. Supported by accident, not targeted |
 | **llama.cpp forks** | **A runtime is a binary path, not a name.** PrismML's fork is required for Bonsai's `Q1_0_g128` kernels and upstream cannot load that format. Froe must therefore support several llama.cpp builds side by side — each a `[runtime]` entry with its own binary, port and capability flags — rather than assuming one `llama-server` |
 | **vLLM** | Server-grade, wants real VRAM. Wrong for a laptop, right if a GPU box ever appears |
@@ -169,10 +164,10 @@ grammar  = "unverified"             # open question — see below
 ```
 
 **SETTLED 2026-09-11 — the fork is not required.** Upstream llama.cpp
-(commit `3bcfeb7`, CPU-only build) loads `lmstudio-community/Bonsai-27B-GGUF`
-(plain `Q1_0`) and serves it over `/v1`. Only PrismML'"'"'s own `Q1_0_g128` build
+(commit `3bcfeb7`, CPU-only build) loads the plain `Q1_0` Bonsai GGUF and serves
+it over `/v1`. Only PrismML's own `Q1_0_g128` build
 needs their kernels. Upstream additionally exposes `--reasoning off`, which
-genuinely disables Bonsai'"'"'s reasoning where LM Studio could only cap it — 129s
+genuinely disables Bonsai's reasoning where a budget could only cap it — 129s
 versus 14.8s on the same prompt.
 
 Build used (no CUDA toolkit on this machine, and none needed: GBNF is a sampler
@@ -186,8 +181,8 @@ llama-server -m <gguf> --port 8080 -c 4096 --jinja --reasoning off
 ```
 
 **The CPU-only build is slow**: ~1.3 tok/s generation and roughly 4 tok/s
-prefill, against ~5 tok/s generation via LM Studio'"'"'s GPU path. For speed keep
-LM Studio; for control and auditability use upstream.
+prefill, against ~5 tok/s on a GPU. Build with your GPU's backend (CUDA, Vulkan
+or Metal); docs/SETUP.md §4 has the CUDA build froe is measured with.
 
 API vendors are the same code path plus a key: Mistral (EU-hosted, EU-governed
 — the sane fallback when governance forbids US processing), DeepSeek, OpenAI.
