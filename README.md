@@ -112,10 +112,8 @@ commands. Every git call is fixed Go with a fixed argv and no shell.
 
 ## Why it exists
 
-1. **Data governance.** For anyone working under UK/EU data-residency rules,
-   source code should not have to leave the machine, the LAN, or at the very
-   least the EU. A local model is the default path here, not an afterthought
-   bolted onto a cloud tool.
+1. **Your code stays on your machine.** A local model is the default path, not
+   an afterthought bolted onto a cloud tool.
 2. **Model churn.** The best local model changes every few months. Nothing about
    a model is compiled in: models are registry entries, hardware profiles are
    detected, and a runtime is a command to start it.
@@ -166,10 +164,9 @@ re-rendered one newline off, so nothing was reused;
 shared system prompt instead of reading it again). On an 8 GB card the same
 model runs about six times faster on llama.cpp, which is why the default moved.
 
-Mistral (EU-hosted) is the cloud fallback for when local hardware can't fit the
-job — the sane choice when governance forbids US processing; Anthropic has its
-own adapter for those who want it regardless. Nothing local ever falls back to
-a hosted model without being told to.
+Mistral and Anthropic adapters exist for when local hardware can't fit the job;
+nothing local falls back to them unless you say so.
+
 Full walkthrough, including the Neovim plugin: [`docs/SETUP.md`](docs/SETUP.md).
 
 ⚠ One runtime footgun worth knowing before you hit it: Ollama's `num_ctx`
