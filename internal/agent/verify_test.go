@@ -249,3 +249,44 @@ func TestDoneWithAnEditContinues(t *testing.T) {
 		t.Fatalf("%d requests, want 5: an edit after the claim must run", len(p.seen))
 	}
 }
+
+// 2026-11-07, qwen3-coder-30b on llama.cpp: "I've created the file" and the
+// same write_file again, every turn. The echo of a call that just succeeded
+// ends the run instead of running (and asking for) it again.
+func TestDoneWithAnEchoOfTheLastCallEndsTheRun(t *testing.T) {
+	write := &provider.ToolCall{ID: "w1", Name: "write_file", Arguments: `{"path":"b.md","content":"borrame"}`}
+	again := &provider.ToolCall{ID: "w2", Name: "write_file", Arguments: write.Arguments}
+	p, _ := runScript(t, "Create b.md containing borrame.",
+		reply{call: write},
+		reply{text: "I've created the file b.md.", call: again},
+		reply{text: "should never be asked"},
+	)
+	if len(p.seen) != 2 {
+		t.Fatalf("%d requests, want 2: the echo should end the run", len(p.seen))
+	}
+}
+
+// A command that failed may fairly be run again: no echo, no early end.
+func TestRerunOfAFailedCommandContinues(t *testing.T) {
+	p, _ := runScript(t, "Run the tests.",
+		reply{call: failCall},
+		reply{text: "That failed; running it again.", call: failCall},
+		reply{text: "done"},
+	)
+	if len(p.seen) != 3 {
+		t.Fatalf("%d requests, want 3: a failed command's rerun must run", len(p.seen))
+	}
+}
+
+// The same call without any message is the stuck detector's business, not this.
+func TestSilentRepeatIsNotAnEcho(t *testing.T) {
+	write := &provider.ToolCall{ID: "w1", Name: "write_file", Arguments: `{"path":"b.md","content":"x"}`}
+	p, _ := runScript(t, "Create b.md containing x.",
+		reply{call: write},
+		reply{call: write},
+		reply{text: "done"},
+	)
+	if len(p.seen) != 3 {
+		t.Fatalf("%d requests, want 3", len(p.seen))
+	}
+}

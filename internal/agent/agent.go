@@ -305,6 +305,9 @@ func (a *Agent) run(ctx context.Context, task string, images []provider.ImageCon
 	// cannot change), but the abort message must say which actually happened
 	// rather than claiming a failure that never occurred.
 	attempts := map[string]callAttempt{}
+	// lastDone is the fingerprint of the last call that ran and succeeded, or
+	// "" when the last one failed or was not run. See echoesLastCall.
+	lastDone := ""
 
 	// resultRepeats catches the same non-progress by a different route:
 	// arguments that differ just enough to dodge the fingerprint above, but
@@ -588,6 +591,23 @@ func (a *Agent) run(ctx context.Context, task string, images []provider.ImageCon
 			calls = nil
 		}
 
+		if len(calls) == 1 && strings.TrimSpace(answer) != "" &&
+			calls[0].Name+"\x00"+calls[0].Arguments == lastDone {
+			// It reports the job done and, in the same message, makes again the
+			// call that just did it. Measured 2026-11-07, qwen3-coder-30b on
+			// llama.cpp: "I've created the file borrame.md" plus the same
+			// write_file, turn after turn, 4 replays of 5 with the conversation
+			// sent straight to llama-server; asked to delete it, the same with
+			// rm. Each echo cost a turn and an approval. The call already
+			// succeeded, so take the message as the answer and finish below;
+			// the leftover, checklist and verify passes still run.
+			if !emit(Event{Kind: KindToolResult, Tool: "(done)",
+				Result: "finished: the repeated " + calls[0].Name + " already ran and succeeded; not run again"}) {
+				return
+			}
+			calls = nil
+		}
+
 		if len(calls) == 0 && a.ApplyEdits && !applyNudged && len(m.FilesChanged) == 0 &&
 			turn < maxTurns && showsCode(answer, task) && a.canRun("edit_file") {
 			// The answer holds the change as a code block and no file was
@@ -750,6 +770,11 @@ func (a *Agent) run(ctx context.Context, task string, images []provider.ImageCon
 				m.ToolErrors++
 			}
 			attempts[fingerprint] = callAttempt{count: prior.count + 1, failed: denied}
+			lastDone = ""
+			if !denied && !strings.HasPrefix(result, "exit status ") &&
+				!strings.HasPrefix(result, "(identical to a call") {
+				lastDone = fingerprint
+			}
 
 			if !denied {
 				if t, ok := a.Tools.Get(call.Name); ok && t.Mutating() {
