@@ -38,6 +38,8 @@ function M.open()
   vim.wo[state.win].number = false
   vim.wo[state.win].relativenumber = false
   vim.wo[state.win].signcolumn = "no"
+  -- 'list' would draw the user's tab markers inside diffs and code.
+  vim.wo[state.win].list = false
   vim.api.nvim_set_current_win(current)
   return state.win
 end
@@ -72,6 +74,22 @@ function M.line(text)
   for _, l in ipairs(vim.split(text or "", "\n", { plain = true })) do
     M._append(l)
   end
+end
+
+local ns = vim.api.nvim_create_namespace("froe")
+
+--- Highlight the whole last line with a highlight group.
+function M.highlight_last(group)
+  local buf = ensure_buf()
+  local last = vim.api.nvim_buf_line_count(buf) - 1
+  vim.api.nvim_buf_set_extmark(buf, ns, last, 0, { line_hl_group = group })
+end
+
+--- Cut text to one line of the output window, ending in … when cut.
+function M.clip(text)
+  local width = shown() and vim.api.nvim_win_get_width(state.win) - 2 or 100
+  if vim.fn.strdisplaywidth(text) <= width then return text end
+  return vim.fn.strcharpart(text, 0, width - 1) .. "…"
 end
 
 --- Commit any partial line so the next write starts cleanly.

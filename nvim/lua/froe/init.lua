@@ -44,8 +44,15 @@ local function approve(params)
   if params.detail and params.detail ~= "" then
     ui.line("")
     ui.line("  " .. prompt)
+    local is_edit = params.tool == "edit_file"
     for _, l in ipairs(vim.split(params.detail, "\n", { plain = true })) do
       ui.line("  │ " .. l)
+      -- An edit's added and removed lines in the diff colours, as in the terminal.
+      if is_edit and l:sub(1, 2) == "+ " then
+        ui.highlight_last("DiffAdd")
+      elseif is_edit and l:sub(1, 2) == "- " then
+        ui.highlight_last("DiffDelete")
+      end
     end
   end
   local choice = vim.fn.confirm("froe wants to " .. prompt, "&Allow\n&Deny\nA&lways", 2)
@@ -78,7 +85,9 @@ local function on_event(p)
     end
   elseif p.kind == "tool" then
     ui.spinner_stop()
-    ui.line("  ▸ " .. (p.tool or "") .. " " .. (p.args or ""))
+    -- One line, like the terminal: an edit's arguments are the whole old and
+    -- new text, which the approval shows properly as a diff.
+    ui.line(ui.clip("  ▸ " .. (p.tool or "") .. " " .. (p.args or ""):gsub("\n", " ")))
   elseif p.kind == "tool_result" then
     local first = vim.split(p.result or "", "\n", { plain = true })[1] or ""
     ui.line("    " .. first:sub(1, 120))
