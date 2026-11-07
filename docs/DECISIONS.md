@@ -80,7 +80,8 @@ small turn budget, then hand control back. On a long autonomous task at an
 8192-token window the failure is memory, not capability: the model finds the
 right file and then loses track of what it has already done. So the state
 lives with the user and in the conversation, not in a context window that
-cannot hold it. The README gives the run-by-run account.
+cannot hold it. Measured in September 2026 on a real four-site edit: every run
+found the right file, and the runs that failed lost track of what they had done.
 
 *Enforced in:* `cmd/froe/` (one file per command); `agent.DefaultMaxTurns`.
 

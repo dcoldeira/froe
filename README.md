@@ -25,14 +25,49 @@ does, but the model runs on your own hardware: an open model on an open runtime
 checks the model's work wherever it can, and every edit, command and web search
 waits for your approval.
 
-- **Local and open, end to end.** Froe is MIT, every runtime it ships with is
-  open source, and nothing local falls back to a hosted model unless you say so.
+- **Your code stays on your machine.** Froe is MIT, every runtime it ships with
+  is open source, and nothing local falls back to a hosted model unless you say so.
 - **Plain code checks the model.** After the model answers, deterministic Go
   verifies what it can, and the model never writes a git command.
 - **Measured on an ordinary laptop.** 24 of 30 eval runs pass in about 15
   minutes on an 8 GB GPU with 16 GB of RAM. [The numbers](#evaluation).
+- **No model is compiled in.** The best local model changes every few months, so
+  models are registry entries, hardware is detected, and `froe doctor` reports
+  what a machine can actually run.
 - **One binary, two clients.** The terminal and Neovim share one agent, one
   permission gate and one session store.
+
+A froe is a riving tool: you set the blade on the end grain and strike it, and
+the wood splits along its own grain. The tool supplies the edge; you decide
+where the stroke lands.
+
+## Install
+
+You need Linux, Go, a GPU with 8 GB or more, and about 20 GB of disk for the
+default model.
+
+```bash
+gh repo clone dcoldeira/froe && cd froe
+make install              # froe and froe-llamacpp → ~/.local/bin
+froe doctor               # what this machine can run
+```
+
+Then build llama.cpp and download the default model, Qwen3-Coder-30B-A3B
+(Q4_K_M, 18.6 GB) to `~/models/`. [`docs/SETUP.md`](docs/SETUP.md) has both steps,
+and the Neovim plugin. You don't start the model yourself: when llama-server is
+down, froe starts it before the first request.
+
+Qwen3-Coder-30B-A3B is a mixture-of-experts model with 3.3B of its 30.5B
+parameters active per token, so it runs on an 8 GB card with the rest of the
+experts on the CPU. `froe-llamacpp` runs it with one slot (each turn reads only
+what is new), the model's own chat template for native tool calls, and a 32K
+window.
+
+Froe speaks OpenAI-compatible `/v1/chat/completions`, so Ollama, vLLM and
+[colibri](https://github.com/JustVugg/colibri) work through the same adapter.
+Mistral and Anthropic adapters exist for when local hardware can't fit the job.
+
+⚠ Ollama's `num_ctx` defaults to 4096 and **silently truncates** everything past it.
 
 ## Using it
 
@@ -52,9 +87,7 @@ From Neovim, over JSON-RPC to the same binary:
 
 Commands, keymaps and a short how-to: [`nvim/README.md`](nvim/README.md).
 
-### Short jobs get their own commands
-
-Some jobs are small enough that an open-ended loop only wastes time. Each of
+Some jobs are small enough that an open-ended session only wastes time. Each of
 these does one job with a fresh context and the smallest turn budget that fits,
 then hands control back:
 
@@ -64,30 +97,9 @@ froe commit -a -m "…" -p      # staged diff → message → commit → push
 froe ask "<question>"         # one question, one answer, no tools
 froe do "<task>"              # one task, the full agent loop, then exit
 froe map                      # the project map the model is given
-froe doctor                   # what this machine can actually run
 froe memory                   # durable facts about this project
 froe sessions                 # list or replay past conversations
 ```
-
-They exist because of a measurement. In September 2026 a 27B model with an
-8192-token window was pointed at a real issue: remove one field from a report
-table, four edit sites, in a 1435-line file inside a 5651-file repository.
-
-| run | outcome |
-|---|---|
-| 1 | 21 turns, 7m14 — 3 of 4 sites, left a row with 6 cells against 5 headers |
-| 2 | died at turn 4, context overflow |
-| 3 | 24 turns, 7m10 — 2 of 4 sites |
-| 4 (read-only) | found all sites by turn 4, then wandered to the turn limit |
-
-The failure was never capability. In every run it found the right file from a
-path the issue got *wrong*, and it noticed that a `col_widths` list was
-positionally coupled to its headers, a constraint nobody had stated. The failure
-was memory: run 3 spent turns 12 to 23 hunting for the issue's phantom path, two
-turns *after* it had already edited the real file. A job split into bounded
-steps keeps the state with you instead of in a window that cannot hold it
-(decision D8 in [`docs/DECISIONS.md`](docs/DECISIONS.md)). Today's default runs
-with a 32K window, which is why the open session is now the main way in.
 
 ## Plain code checks the model
 
@@ -110,68 +122,6 @@ files, an 1876-line target, four decoys that all match the obvious glob:
 For `froe commit`, the model is only ever asked for *message text*, never for
 commands. Every git call is fixed Go with a fixed argv and no shell.
 
-## Why it exists
-
-1. **Your code stays on your machine.** A local model is the default path, not
-   an afterthought bolted onto a cloud tool.
-2. **Model churn.** The best local model changes every few months. Nothing about
-   a model is compiled in: models are registry entries, hardware profiles are
-   detected, and a runtime is a command to start it.
-3. **Open source, end to end.** The code that sees your source should be code
-   you can read. Froe is MIT, and every runtime it ships with is open source:
-   llama.cpp (the default), Ollama, vLLM and
-   [colibri](https://github.com/JustVugg/colibri).
-4. **Measured on ordinary hardware.** The numbers below come from one laptop
-   with 16 GB of RAM and an 8 GB GPU. Nothing is tuned for that box in particular:
-   `froe doctor` measures what a machine can actually do instead of assuming,
-   and a bigger one simply runs bigger models.
-
-## Install
-
-```bash
-gh repo clone dcoldeira/froe
-cd froe
-go install ./cmd/froe     # → ~/go/bin/froe   (make install → ~/.local/bin instead)
-froe doctor
-```
-
-Then point it at a model runtime. Froe speaks OpenAI-compatible
-`/v1/chat/completions` as its lingua franca, so llama.cpp, Ollama, vLLM and
-colibri all work through one adapter.
-
-The default is **Qwen3-Coder-30B-A3B on [llama.cpp](https://github.com/ggml-org/llama.cpp)**'s
-`llama-server`. It is a mixture-of-experts model with 3.3B of its 30.5B
-parameters active per token, so it runs on an 8 GB card with the rest of the
-experts on the CPU. With `prefix_reuse` set (it is, for llama.cpp) the
-conversation only ever grows, so each turn reads only what is new. When
-llama-server is down, froe starts it before the first request, from the terminal
-or from Neovim, with `froe-llamacpp`, installed next to froe:
-
-```bash
-froe-llamacpp --model ~/models/Qwen3-Coder-30B-A3B-Instruct-Q4_K_M.gguf --background
-```
-
-It runs one slot (so the conversation stays where it was read), the model's own
-chat template for native tool calls, and a 32K window; llama.cpp's `--fit` sizes
-the GPU/CPU split to the card.
-
-[colibri](https://github.com/JustVugg/colibri) is supported too, started the same
-way by `froe-colibri`. It was the default from 2026-11-01 to 2026-11-06; two fixes
-found while building froe around it are merged upstream
-([#2535](https://github.com/JustVugg/colibri/pull/2535): a tool-call turn
-re-rendered one newline off, so nothing was reused;
-[#2537](https://github.com/JustVugg/colibri/pull/2537): resume a new task from the
-shared system prompt instead of reading it again). On an 8 GB card the same
-model runs about six times faster on llama.cpp, which is why the default moved.
-
-Mistral and Anthropic adapters exist for when local hardware can't fit the job;
-nothing local falls back to them unless you say so.
-
-Full walkthrough, including the Neovim plugin: [`docs/SETUP.md`](docs/SETUP.md).
-
-⚠ One runtime footgun worth knowing before you hit it: Ollama's `num_ctx`
-defaults to 4096 and **silently truncates** everything past it.
-
 ## Design in one paragraph
 
 A single static Go binary (~13k lines) holds the agent loop, the tool
@@ -179,8 +129,7 @@ implementations and the provider adapters. Tool calls are produced three
 different ways — GBNF grammar, native tool-calling, or a ReAct text protocol —
 because which one works is a property of the *model*, not a global default. A
 ~580-line Lua plugin drives the same binary from Neovim over JSON-RPC on stdio,
-the LSP pattern, so the editor and the terminal share one implementation, one
-permission gate and one session store.
+the LSP pattern, so the editor and the terminal share one implementation.
 
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — how the pieces fit
 - [`docs/MODELS.md`](docs/MODELS.md) — the registry, hardware profiles, runtimes
@@ -194,8 +143,7 @@ permission gate and one session store.
 `eval/` holds ten tasks, each scored as a **pass rate over repeats** against a
 120 s bar per run. Variance between identical runs of an agent is large enough
 to swamp the effect of a real fix, so one run cannot tell you whether a change
-helped. A task can name the command it exercises, so `froe locate` is measured
-as itself instead of being approximated with `do`.
+helped.
 
 ```bash
 bash eval/run.sh            # all tasks
@@ -204,46 +152,33 @@ ONLY=01-fix-panic bash eval/run.sh
 
 On a laptop with an 8 GB RTX 4060 and 16 GB of RAM, 3 runs per task:
 
-| Model | Runtime | Score | Suite time | When |
-|---|---|---|---|---|
-| **Qwen3-Coder 30B-A3B** (default, 32K window) | **llama.cpp** | **24/30** | **15m13s** | 2026-11-06 |
-| Qwen3-Coder 30B-A3B, 8K window, before the keep-alive fix | llama.cpp | 22/30 | 11m31s | 2026-11-06 |
-| Qwen3-Coder 30B-A3B, same file | colibri | 16/30 * | 62m55s | 2026-11-06 |
-| Qwen3-Coder 30B-A3B, same file | colibri | 18/30 * | 56m | 2026-11-01 |
-| Ministral 3 8B | Ollama | 19/30 | 6m24s | 2026-09-25 |
+| Model | Runtime | Score | Suite time |
+|---|---|---|---|
+| **Qwen3-Coder 30B-A3B** (default, 32K window) | **llama.cpp** | **24/30** | **15m13s** |
+| Qwen3-Coder 30B-A3B, same file | colibri | 16/30 | 62m55s |
+| Ministral 3 8B | Ollama | 19/30 | 6m24s |
 
-On llama.cpp the model generates ~22-35 tokens a second and reads prompts at
-~200-425, so no run timed out. At 32K every task passes 3/3 except the two that
-locate code from a bug report (09, 10), where the model answers too early. On colibri the same file runs at ~5 tokens a second on this laptop,
-because most experts sit on the CPU, and a run that needs 12-16 turns misses
-the bar.
-
-\* With `FIRST_TURN_ALLOWANCE=180`: colibri reads a project's prompt cold the
-first time (50-150 s on this laptop), and the 120 s bar applies to the turns
-after it. llama.cpp needs no allowance: its first turns took 0-9 s.
-
-The full table, the tasks and the failure modes are in
-[`eval/README.md`](eval/README.md).
+Every task passes 3/3 except the two that locate code from a bug report, where
+the model answers too early. The model generates ~22-35 tokens a second on
+llama.cpp, against ~5 on colibri, where most experts sit on the CPU. Every run,
+the tasks and the failure modes: [`eval/README.md`](eval/README.md).
 
 ## Status, honestly
 
-Public since 2026-09-23.
+Public since 2026-09-23. Linux is where it is used and measured. It builds for
+macOS and Windows, but neither has been run end to end; on Windows, use WSL2
+for now.
 
-In daily use for commits: `froe commit` drives the release process for
+In daily use: `froe commit` drives the releases of
 [QRL](https://github.com/entangledcode/qrl) and [Bell](https://bell.entangledcode.dev),
-the two projects it was built to develop. `froe locate` is the first of the stepwise
-commands and is measured above.
+the two projects it was built to develop, and froe is developed with froe.
 
-**Runtime:** llama.cpp is the default since 2026-11-06, measured against colibri
-on the same model; `froe-llamacpp` starts it with the settings froe needs.
-colibri stays supported, and two colibri pull requests that came out of the work
-are merged upstream ([#2535](https://github.com/JustVugg/colibri/pull/2535),
-[#2537](https://github.com/JustVugg/colibri/pull/2537)). More stepwise commands
-(`explain`, `plan`, `step`) are planned, not built.
-
-**Platforms:** Linux is where it is used and measured. It builds for macOS and
-Windows, but neither has been run end to end; on Windows, use WSL2 for now
-([`docs/ROADMAP.md`](docs/ROADMAP.md) lists the gaps).
+llama.cpp has been the default runtime since 2026-11-06, measured against
+colibri on the same model file. colibri stays supported, and two fixes found
+while building froe around it are merged upstream
+([#2535](https://github.com/JustVugg/colibri/pull/2535),
+[#2537](https://github.com/JustVugg/colibri/pull/2537)). Open work is in
+[`docs/ROADMAP.md`](docs/ROADMAP.md).
 
 **Not claimed:** this is not a replacement for a frontier-model coding agent, and
 it is not trying to be. It is what local open models can honestly do on the
