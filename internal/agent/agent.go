@@ -1445,17 +1445,102 @@ func detail(call provider.ToolCall) string {
 	return ""
 }
 
-// diff renders a minimal -/+ view. Not a real diff algorithm: edit_file
-// replaces one exact string, so showing both sides is the whole change.
+// diff renders the edit as a line diff: changed lines marked - and +, with
+// up to diffContext unchanged lines around each change, so the approval shows
+// the fix rather than the whole replaced block.
 func diff(old, neu string) string {
-	var b strings.Builder
-	for _, l := range strings.Split(preview(old, 10), "\n") {
-		b.WriteString("- " + l + "\n")
+	a, b := strings.Split(old, "\n"), strings.Split(neu, "\n")
+	if len(a)*len(b) > maxDiffCells {
+		// Too big to align cheaply; both sides, clipped, still say what changes.
+		return prefixLines("- ", preview(old, 10)) + "\n" + prefixLines("+ ", preview(neu, 10))
 	}
-	for _, l := range strings.Split(preview(neu, 10), "\n") {
-		b.WriteString("+ " + l + "\n")
+	ops := lineDiff(a, b)
+
+	// Keep a line if a change lies within diffContext of it.
+	near := make([]bool, len(ops))
+	for i, op := range ops {
+		if op.kind == ' ' {
+			continue
+		}
+		for j := max(0, i-diffContext); j <= min(len(ops)-1, i+diffContext); j++ {
+			near[j] = true
+		}
 	}
-	return strings.TrimRight(b.String(), "\n")
+
+	var out []string
+	skipped := false
+	for i, op := range ops {
+		if !near[i] {
+			skipped = true
+			continue
+		}
+		if skipped && len(out) > 0 {
+			out = append(out, "  …")
+		}
+		skipped = false
+		out = append(out, string(op.kind)+" "+op.line)
+	}
+	return preview(strings.Join(out, "\n"), maxDiffLines)
+}
+
+const (
+	diffContext  = 2
+	maxDiffLines = 30
+	maxDiffCells = 250_000 // 500 x 500 lines
+)
+
+type diffOp struct {
+	kind byte // ' ' unchanged, '-' removed, '+' added
+	line string
+}
+
+// lineDiff aligns a and b on their longest common subsequence of lines.
+func lineDiff(a, b []string) []diffOp {
+	// lcs[i][j] = length of the LCS of a[i:] and b[j:].
+	lcs := make([][]int, len(a)+1)
+	for i := range lcs {
+		lcs[i] = make([]int, len(b)+1)
+	}
+	for i := len(a) - 1; i >= 0; i-- {
+		for j := len(b) - 1; j >= 0; j-- {
+			if a[i] == b[j] {
+				lcs[i][j] = lcs[i+1][j+1] + 1
+			} else {
+				lcs[i][j] = max(lcs[i+1][j], lcs[i][j+1])
+			}
+		}
+	}
+	var ops []diffOp
+	i, j := 0, 0
+	for i < len(a) && j < len(b) {
+		switch {
+		case a[i] == b[j]:
+			ops = append(ops, diffOp{' ', a[i]})
+			i++
+			j++
+		case lcs[i+1][j] >= lcs[i][j+1]:
+			ops = append(ops, diffOp{'-', a[i]})
+			i++
+		default:
+			ops = append(ops, diffOp{'+', b[j]})
+			j++
+		}
+	}
+	for ; i < len(a); i++ {
+		ops = append(ops, diffOp{'-', a[i]})
+	}
+	for ; j < len(b); j++ {
+		ops = append(ops, diffOp{'+', b[j]})
+	}
+	return ops
+}
+
+func prefixLines(p, s string) string {
+	lines := strings.Split(s, "\n")
+	for i := range lines {
+		lines[i] = p + lines[i]
+	}
+	return strings.Join(lines, "\n")
 }
 
 func preview(s string, maxLines int) string {
@@ -1463,5 +1548,10 @@ func preview(s string, maxLines int) string {
 	if len(lines) <= maxLines {
 		return s
 	}
-	return strings.Join(lines[:maxLines], "\n") + fmt.Sprintf("\n… %d more lines", len(lines)-maxLines)
+	n := len(lines) - maxLines
+	more := "more lines"
+	if n == 1 {
+		more = "more line"
+	}
+	return strings.Join(lines[:maxLines], "\n") + fmt.Sprintf("\n… %d %s", n, more)
 }

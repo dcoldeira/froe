@@ -25,6 +25,10 @@ does, but the model runs on your own hardware: an open model on an open runtime
 checks the model's work wherever it can, and every edit, command and web search
 waits for your approval.
 
+<p align="center">
+  <img src="assets/froe-session.png" alt="A froe session: the model reads calc.go and its test, explains why Average panics on an empty slice, and proposes a three-line guard as a diff waiting for approval.">
+</p>
+
 - **Your code stays on your machine.** Froe is MIT, every runtime it ships with
   is open source, and nothing local falls back to a hosted model unless you say so.
 - **Plain code checks the model.** After the model answers, deterministic Go

@@ -33,3 +33,5 @@ func (s style) wrap(code, text string) string {
 func (s style) bold(t string) string   { return s.wrap("1", t) }
 func (s style) dim(t string) string    { return s.wrap("2", t) }
 func (s style) yellow(t string) string { return s.wrap("33", t) }
+func (s style) red(t string) string    { return s.wrap("31", t) }
+func (s style) green(t string) string  { return s.wrap("32", t) }

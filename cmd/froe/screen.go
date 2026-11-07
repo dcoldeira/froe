@@ -155,6 +155,20 @@ func (s *screen) endRun() {
 	s.redraw("")
 }
 
+// diffLine colours an edit's removed lines red and added lines green.
+func (s *screen) diffLine(tool, line string) string {
+	if tool != "edit_file" {
+		return line
+	}
+	switch {
+	case strings.HasPrefix(line, "- "):
+		return s.st.red(line)
+	case strings.HasPrefix(line, "+ "):
+		return s.st.green(line)
+	}
+	return line
+}
+
 // ask answers an approval request from a key typed into the screen. It is
 // perms.Gate's Prompt, so the gate's policy still decides whether to ask.
 func (s *screen) ask(req perms.Request) perms.Decision {
@@ -162,7 +176,7 @@ func (s *screen) ask(req perms.Request) perms.Decision {
 	fmt.Fprintf(&b, "\n  %s\n", req.Summary)
 	if req.Detail != "" {
 		for _, line := range strings.Split(strings.TrimRight(req.Detail, "\n"), "\n") {
-			fmt.Fprintf(&b, "  │ %s\n", line)
+			fmt.Fprintf(&b, "  │ %s\n", s.diffLine(req.Tool, line))
 		}
 	}
 	fmt.Fprint(os.Stderr, b.String())
