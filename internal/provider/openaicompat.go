@@ -39,9 +39,28 @@ func NewOpenAICompat(name, baseURL, apiKey string, caps Caps) *OpenAICompat {
 		http: &http.Client{
 			Transport: &http.Transport{
 				ResponseHeaderTimeout: 120 * time.Second,
+				// llama-server closes a connection after 5 s idle, and an agent
+				// turn is often idle longer while a tool runs. Reusing such a
+				// connection failed the next request with a bare EOF: measured
+				// 2026-11-06, 11 of 30 eval runs. Drop idle connections first.
+				IdleConnTimeout: idleConnTimeout,
 			},
 		},
 	}
+}
+
+// idleConnTimeout is below llama-server's 5 s keep-alive, so froe never sends
+// a request down a connection the server has already closed.
+const idleConnTimeout = 4 * time.Second
+
+// markRetryable lets Go's transport resend a local request when a reused
+// connection turns out to be closed before any reply arrived - the race
+// idleConnTimeout narrows but cannot close. A zero-length Idempotency-Key
+// marks it without sending the header. Local only: nothing has been generated
+// when that error happens, and a hosted API that bills per request is never
+// sent the same request twice by this.
+func markRetryable(r *http.Request) {
+	r.Header["Idempotency-Key"] = nil
 }
 
 func (c *OpenAICompat) Name() string { return c.name }
@@ -212,6 +231,8 @@ func (c *OpenAICompat) Chat(ctx context.Context, req Request) (<-chan Event, err
 	httpReq.Header.Set("Accept", "text/event-stream")
 	if c.apiKey != "" {
 		httpReq.Header.Set("Authorization", "Bearer "+c.apiKey)
+	} else {
+		markRetryable(httpReq)
 	}
 
 	start := time.Now()

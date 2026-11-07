@@ -5,45 +5,43 @@
 <h1 align="center">froe</h1>
 
 <p align="center">
-  <em>A local-first coding agent for the terminal and Neovim.<br>
-  Small bounded commands, local open models, and no source code leaving the machine.</em>
+  <em>An open-source coding agent that runs on your own machine.<br>
+  Terminal and Neovim, open models, and no source code leaving the machine.</em>
 </p>
 
 <p align="center">
   <a href="#install">Install</a> ·
-  <a href="#the-commands">Commands</a> ·
-  <a href="#why-it-is-not-an-autonomous-agent">Why this shape</a> ·
+  <a href="#using-it">Using it</a> ·
+  <a href="#plain-code-checks-the-model">Checking the model</a> ·
+  <a href="#evaluation">Evaluation</a> ·
   <a href="docs/ARCHITECTURE.md">Architecture</a>
 </p>
 
 ---
 
-## What a froe is
+Froe reads, edits and runs code in your project, the way a hosted coding agent
+does, but the model runs on your own hardware: an open model on an open runtime
+([llama.cpp](https://github.com/ggml-org/llama.cpp) by default). Plain Go code
+checks the model's work wherever it can, and every edit, command and web search
+waits for your approval.
 
-A froe is a riving tool. You set the blade on the end grain, strike the spine
-with a wooden club, and lever the handle to **split the wood along its own
-grain**. It has no swing of its own — a person supplies every bit of the force,
-and all of the judgement about where the grain actually runs. Riven wood follows
-the fibres, which is why it is stronger than sawn.
+- **Local and open, end to end.** Froe is MIT, every runtime it ships with is
+  open source, and nothing local falls back to a hosted model unless you say so.
+- **Plain code checks the model.** After the model answers, deterministic Go
+  verifies what it can, and the model never writes a git command.
+- **Measured on an ordinary laptop.** 24 of 30 eval runs pass in about 15
+  minutes on an 8 GB GPU with 16 GB of RAM. [The numbers](#evaluation).
+- **One binary, two clients.** The terminal and Neovim share one agent, one
+  permission gate and one session store.
 
-That is the design of this thing, not just its name. The model does the
-concentrated work of one stroke. You decide where the stroke lands.
+## Using it
 
-## The commands
-
-Each one does a single job with a fresh context, the smallest turn budget that
-fits, and then hands control straight back to you.
+Run `froe` in any project directory to start a session. It keeps its memory of
+the project between sessions, and it can search the web.
 
 ```bash
-froe locate "<issue text>"    # WHERE in the code does this live? (read-only)
-froe commit -a -m "…" -p      # staged diff → message → commit → push
-froe ask "<question>"         # one question, one answer, no tools
-froe map                      # the project map the model is given
-froe doctor                   # what this machine can actually run
-froe chat                     # interactive session with memory
-froe memory                   # durable facts about this project
-froe sessions                 # list or replay past conversations
-froe do "<task>"              # the full agent loop, for a job that fits in one
+cd ~/my-project
+froe                          # interactive session (also: froe chat)
 ```
 
 From Neovim, over JSON-RPC to the same binary:
@@ -54,10 +52,25 @@ From Neovim, over JSON-RPC to the same binary:
 
 Commands, keymaps and a short how-to: [`nvim/README.md`](nvim/README.md).
 
-## Why it is not an autonomous agent
+### Short jobs get their own commands
 
-Because it was measured, and the autonomous loop lost. A 27B model at an
-8192-token context was pointed at a real issue: remove one field from a report
+Some jobs are small enough that an open-ended loop only wastes time. Each of
+these does one job with a fresh context and the smallest turn budget that fits,
+then hands control back:
+
+```bash
+froe locate "<issue text>"    # WHERE in the code does this live? (read-only)
+froe commit -a -m "…" -p      # staged diff → message → commit → push
+froe ask "<question>"         # one question, one answer, no tools
+froe do "<task>"              # one task, the full agent loop, then exit
+froe map                      # the project map the model is given
+froe doctor                   # what this machine can actually run
+froe memory                   # durable facts about this project
+froe sessions                 # list or replay past conversations
+```
+
+They exist because of a measurement. In September 2026 a 27B model with an
+8192-token window was pointed at a real issue: remove one field from a report
 table, four edit sites, in a 1435-line file inside a 5651-file repository.
 
 | run | outcome |
@@ -67,22 +80,19 @@ table, four edit sites, in a 1435-line file inside a 5651-file repository.
 | 3 | 24 turns, 7m10 — 2 of 4 sites |
 | 4 (read-only) | found all sites by turn 4, then wandered to the turn limit |
 
-**The failure was never capability.** In every run it found the right file from a
-path the issue got *wrong*. It noticed that a `col_widths` list was positionally
-coupled to its headers — a constraint nobody had stated. That is good
-engineering judgement.
+The failure was never capability. In every run it found the right file from a
+path the issue got *wrong*, and it noticed that a `col_widths` list was
+positionally coupled to its headers, a constraint nobody had stated. The failure
+was memory: run 3 spent turns 12 to 23 hunting for the issue's phantom path, two
+turns *after* it had already edited the real file. A job split into bounded
+steps keeps the state with you instead of in a window that cannot hold it
+(decision D8 in [`docs/DECISIONS.md`](docs/DECISIONS.md)). Today's default runs
+with a 32K window, which is why the open session is now the main way in.
 
-**The failure was memory.** Run 3 spent turns 12 to 23 hunting for the issue's
-phantom path, two turns *after* it had already edited the real file.
+## Plain code checks the model
 
-So the state lives in you and in the conversation, rather than in a context
-window that cannot hold it. This is decision D8 in
-[`docs/DECISIONS.md`](docs/DECISIONS.md).
-
-### The second half of the answer: check the model after it stops
-
-The bigger lever turned out not to be a larger context or a better prompt. It is
-**deterministic Go that verifies the model's answer once it has finished**.
+The biggest gain did not come from a larger window or a better prompt. It came
+from **deterministic Go that checks the model's answer once it has finished**.
 
 `froe locate` re-runs the model's own successful searches inside the files it
 cited, and reports the lines it missed. That costs no turns and no tokens, and
@@ -97,6 +107,9 @@ files, an 1876-line target, four decoys that all match the obvious glob:
 | + searches derived from the report's own quoted phrases | 2/3 | 6 |
 | + **searching the project before turn 1** | **3/3** | **4** |
 
+For `froe commit`, the model is only ever asked for *message text*, never for
+commands. Every git call is fixed Go with a fixed argv and no shell.
+
 ## Why it exists
 
 1. **Data governance.** For anyone working under UK/EU data-residency rules,
@@ -104,19 +117,16 @@ files, an 1876-line target, four decoys that all match the obvious glob:
    least the EU. A local model is the default path here, not an afterthought
    bolted onto a cloud tool.
 2. **Model churn.** The best local model changes every few months. Nothing about
-   a model is compiled in — models are registry entries, hardware profiles are
-   detected, and a runtime is a binary path rather than a name.
+   a model is compiled in: models are registry entries, hardware profiles are
+   detected, and a runtime is a command to start it.
 3. **Open source, end to end.** The code that sees your source should be code
    you can read. Froe is MIT, and every runtime it ships with is open source:
-   [llama.cpp](https://github.com/ggml-org/llama.cpp) (the default), Ollama,
-   vLLM and [colibri](https://github.com/JustVugg/colibri).
+   llama.cpp (the default), Ollama, vLLM and
+   [colibri](https://github.com/JustVugg/colibri).
 4. **Measured on ordinary hardware.** The numbers below come from one laptop
    with 16 GB of RAM and an 8 GB GPU. Nothing is tuned for that box in particular:
    `froe doctor` measures what a machine can actually do instead of assuming,
    and a bigger one simply runs bigger models.
-5. **Two clients, one binary.** The terminal (`froe chat` and the one-shot
-   commands) and Neovim are both first-class. Neither is a wrapper around the
-   other: they share one agent, one permission gate and one session store.
 
 ## Install
 
@@ -144,7 +154,7 @@ froe-llamacpp --model ~/models/Qwen3-Coder-30B-A3B-Instruct-Q4_K_M.gguf --backgr
 ```
 
 It runs one slot (so the conversation stays where it was read), the model's own
-chat template for native tool calls, and an 8K window; llama.cpp's `--fit` sizes
+chat template for native tool calls, and a 32K window; llama.cpp's `--fit` sizes
 the GPU/CPU split to the card.
 
 [colibri](https://github.com/JustVugg/colibri) is supported too, started the same
@@ -199,14 +209,15 @@ On a laptop with an 8 GB RTX 4060 and 16 GB of RAM, 3 runs per task:
 
 | Model | Runtime | Score | Suite time | When |
 |---|---|---|---|---|
-| **Qwen3-Coder 30B-A3B** (default) | **llama.cpp** | **22/30** | **11m31s** | 2026-11-06 |
+| **Qwen3-Coder 30B-A3B** (default, 32K window) | **llama.cpp** | **24/30** | **15m13s** | 2026-11-06 |
+| Qwen3-Coder 30B-A3B, 8K window, before the keep-alive fix | llama.cpp | 22/30 | 11m31s | 2026-11-06 |
 | Qwen3-Coder 30B-A3B, same file | colibri | 16/30 * | 62m55s | 2026-11-06 |
 | Qwen3-Coder 30B-A3B, same file | colibri | 18/30 * | 56m | 2026-11-01 |
 | Ministral 3 8B | Ollama | 19/30 | 6m24s | 2026-09-25 |
 
-On llama.cpp the model generates ~31-35 tokens a second and reads prompts at
-~425, so no run timed out; the eight misses are wrong answers (tasks 06, 07,
-09, 10). On colibri the same file runs at ~5 tokens a second on this laptop,
+On llama.cpp the model generates ~22-35 tokens a second and reads prompts at
+~200-425, so no run timed out. At 32K every task passes 3/3 except the two that
+locate code from a bug report (09, 10), where the model answers too early. On colibri the same file runs at ~5 tokens a second on this laptop,
 because most experts sit on the CPU, and a run that needs 12-16 turns misses
 the bar.
 
@@ -241,10 +252,6 @@ Windows, but neither has been run end to end; on Windows, use WSL2 for now
 it is not trying to be. It is what local open models can honestly do on the
 machine in front of you, plus a lot of deterministic Go making sure the model did
 not quietly get it wrong.
-
-One design point worth calling out: for `froe commit`, the model is only ever
-asked for *message text*, never for commands. Every git call is fixed Go with a
-fixed argv and no shell.
 
 ## Licence
 

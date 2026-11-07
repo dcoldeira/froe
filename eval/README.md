@@ -79,6 +79,34 @@ pass count.
 
 ## Latest results
 
+### llama.cpp at 32K, with the keep-alive fix (2026-11-06, evening)
+
+Same model, file and laptop as below; `froe-llamacpp` at its new default window,
+32768. The earlier runs below lost runs to a bug: llama-server closes a
+connection after 5 s idle, and froe sometimes sent the next turn down it, which
+ended the run with `Post .../chat/completions: EOF` (3 runs at 8K, 11 in a first
+32K run that scored 19/30). froe now drops idle connections after 4 s and may
+resend a local request that hit a closed one. This run: 0 such failures.
+
+| Task | Score | Median secs (first turn) | Median turns | Failure |
+|---|---|---|---|---|
+| 01-fix-panic | 3/3 | 27 (1) | 6 | |
+| 02-find-symbol | 3/3 | 1 | 1 | |
+| 03-add-function | 3/3 | 28 (2) | 6 | |
+| 04-git-history | 3/3 | 2 | 2 | |
+| 05-multi-file | 3/3 | 35 (1) | 10 | |
+| 06-wrong-path | 3/3 | 32 (2) | 7 | |
+| 07-multi-site | 3/3 | 114 (3) | 15 | |
+| 08-large-file | 3/3 | 23 (3) | 7 | |
+| 09-locate-wrong-path | 0/3 | 7 | 1 | answers from the pre-search, at the wrong place |
+| 10-locate-real-shape | 0/3 | 29 (14) | 2 | same |
+| **total** | **24/30** | **15m13s** | | |
+
+Two things changed at once (the window and the fix), so this does not say how
+much each is worth. Window sizes measured on a 6K-token prompt, same laptop:
+8K, 16K, 32K and 64K (with an 8-bit cache at 64K) all held ~6.9 GB of VRAM and
+22-26 tok/s generation; `--fit` moves a few more experts to the CPU instead.
+
 ### llama.cpp against colibri, same model (2026-11-06)
 
 Qwen3-Coder-30B-A3B, the same Q4_K_M file on both runtimes, 8K context,

@@ -78,7 +78,8 @@ curl -L -o ~/models/Qwen3-Coder-30B-A3B-Instruct-Q4_K_M.gguf \
 **Start it with `froe-llamacpp`** (installed next to froe by `make install`). It
 sets what froe needs: one slot (`--parallel 1`, so a conversation stays where it
 was read), the model's own chat template (`--jinja`, for native tool calls) and
-an 8K window. llama.cpp's `--fit` sizes the GPU/CPU split for that window.
+a 32K window (`--ctx` changes it). llama.cpp's `--fit` sizes the GPU/CPU split
+for that window: on an 8 GB card, 8K to 64K measured the same speed.
 
 ```bash
 froe-llamacpp --model ~/models/Qwen3-Coder-30B-A3B-Instruct-Q4_K_M.gguf               # foreground
@@ -104,8 +105,9 @@ Check it: `froe doctor` should list llamacpp as running and the model as
 `serving`.
 
 **What to expect on an 8 GB GPU with 16 GB of RAM** (measured 2026-11-06, RTX
-4060 laptop): about 7 GB of VRAM, ~31-35 tokens a second generated and ~425 read,
-and first turns of 0-9 s. The experts that stay on the CPU are read from the
+4060 laptop): about 7 GB of VRAM, ~22-35 tokens a second generated and ~200-425
+read, and first turns of 0-14 s. Filling the whole 32K window cold takes a couple
+of minutes; later turns of the same conversation read only what is new. The experts that stay on the CPU are read from the
 file through the page cache, which takes most of the RAM (~12 GB). Close other
 heavy programs while it runs; if the system runs short of memory, the model
 pages experts back in from disk and slows down rather than failing. See

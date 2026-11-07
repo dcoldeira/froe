@@ -21,10 +21,10 @@ managed  = true
 serves_one = true          # llama-server holds the one model it was started with
 prefix_reuse = true        # with one slot, a turn that extends the conversation reads only what is new
 # Down when froe needs it: froe-llamacpp starts it (--jinja, --parallel 1,
-# -c 8192, --fit sizing the GPU/CPU split) and returns once the model answers.
+# -c 32768, --fit sizing the GPU/CPU split) and returns once the model answers.
 # The model's `path` is the GGUF file.
 start    = ["froe-llamacpp", "--background", "--model", "{path}", "--model-id", "{model}", "--port", "{port}"]
-notes    = "Upstream llama.cpp (MIT), github.com/ggml-org/llama.cpp. The default runtime. MEASURED 2026-11-06 on the reference laptop (RTX 4060 8 GB, 16 GB RAM), release b12169 with CUDA: Qwen3-Coder-30B-A3B Q4_K_M at ~31-35 tok/s generation and ~425 tok/s prompt reading, 22/30 on the eval in 11m31s - the same GGUF on colibri scored 16/30 in 62m55s. Reports its window at /props."
+notes    = "Upstream llama.cpp (MIT), github.com/ggml-org/llama.cpp. The default runtime. MEASURED 2026-11-06 on the reference laptop (RTX 4060 8 GB, 16 GB RAM), release b12169 with CUDA: Qwen3-Coder-30B-A3B Q4_K_M at ~31-35 tok/s generation and ~425 tok/s prompt reading, 24/30 on the eval in 15m13s at 32K (22/30 at 8K before a keep-alive fix) - the same GGUF on colibri scored 16/30 in 62m55s. Reports its window at /props."
 
 [runtime.llamacpp-prismml]
 kind     = "openai-compat"

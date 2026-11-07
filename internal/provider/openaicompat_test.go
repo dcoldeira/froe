@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -391,5 +392,43 @@ func TestOpenAICompatTypesToolCallParseFailures(t *testing.T) {
 		if got := errors.As(err, &fe); got != tc.want {
 			t.Errorf("%s (tools %v): typed = %v, want %v (err %v)", tc.body, tc.tools, got, tc.want, err)
 		}
+	}
+}
+
+// A server that closes idle connections fast (llama-server: 5 s) must not fail
+// the next request with EOF: idle connections are dropped before that, and a
+// local request may be resent on a reused connection that turns out closed.
+func TestLocalRequestSurvivesServerClosingIdleConnections(t *testing.T) {
+	if idleConnTimeout >= 5*time.Second {
+		t.Fatalf("idleConnTimeout %v is not below llama-server's 5 s keep-alive", idleConnTimeout)
+	}
+	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"ok\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")
+	}))
+	srv.Config.IdleTimeout = 300 * time.Millisecond
+	srv.Start()
+	defer srv.Close()
+
+	c := NewOpenAICompat("local", srv.URL, "", Caps{})
+	for i := 0; i < 3; i++ {
+		if i > 0 {
+			time.Sleep(350 * time.Millisecond) // the server has closed the idle connection
+		}
+		evs, err := c.Chat(context.Background(), Request{Model: "m", Messages: []Message{{Role: "user", Content: "hi"}}})
+		if err != nil {
+			t.Fatalf("request %d: %v", i, err)
+		}
+		for ev := range evs {
+			if ev.Kind == KindError {
+				t.Fatalf("request %d: %v", i, ev.Err)
+			}
+		}
+	}
+
+	req, _ := http.NewRequest(http.MethodPost, srv.URL, nil)
+	markRetryable(req)
+	if _, ok := req.Header["Idempotency-Key"]; !ok {
+		t.Error("local request not marked retryable")
 	}
 }

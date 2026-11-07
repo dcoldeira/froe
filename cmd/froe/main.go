@@ -8,6 +8,9 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"strings"
+
+	"golang.org/x/term"
 
 	"github.com/dcoldeira/froe/internal/doctor"
 	"github.com/dcoldeira/froe/internal/resolve"
@@ -19,6 +22,7 @@ var version = "dev"
 const usage = `froe - local-first agentic coding CLI
 
 usage:
+  froe [flags]                interactive session with memory (same as froe chat)
   froe chat [flags]           interactive session with memory
   froe do  [flags] <task>     run the agent loop with tools
   froe locate [flags] <issue> find WHERE in the code something lives (read-only)
@@ -51,13 +55,18 @@ func main() {
 }
 
 func run(args []string) error {
-	if len(args) == 0 {
+	tty := term.IsTerminal(int(os.Stdin.Fd()))
+	if len(args) == 0 && !tty {
 		fmt.Print(usage)
 		return nil
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
+
+	if chatByDefault(args, tty) {
+		return runChat(ctx, args)
+	}
 
 	switch args[0] {
 	case "rpc", "--rpc":
@@ -89,6 +98,22 @@ func run(args []string) error {
 	default:
 		return fmt.Errorf("unknown command %q\n\n%s", args[0], usage)
 	}
+}
+
+// chatByDefault reports whether the command line means "open chat": bare
+// `froe` in a terminal, or `froe` followed straight by chat's flags
+// (`froe -resume last`, `froe -no-context`), the way `claude` opens its
+// session. The flags that mean something of their own (help, version, rpc)
+// keep it.
+func chatByDefault(args []string, tty bool) bool {
+	if len(args) == 0 {
+		return tty
+	}
+	switch args[0] {
+	case "-h", "--help", "-v", "--version", "--rpc":
+		return false
+	}
+	return strings.HasPrefix(args[0], "-")
 }
 
 func runDoctor(ctx context.Context, args []string) error {

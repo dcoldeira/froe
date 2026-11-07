@@ -6,9 +6,11 @@
 #   --parallel 1  - one slot holds the conversation, so every turn that extends
 #                   it reads only what is new (froe's prefix_reuse). Several
 #                   slots split the window and can send a turn to a cold slot.
-#   -c 8192       - the window froe budgets for. --fit (on by default) sizes the
+#   -c 32768      - the window froe budgets for. --fit (on by default) sizes the
 #                   GPU/CPU split to the card for that window; on an 8 GB card a
 #                   30B mixture-of-experts model keeps most experts on the CPU.
+#                   Measured 2026-11-06: 8K to 64K cost no generation speed
+#                   there, because --fit moves a few more experts to the CPU.
 #
 # Usage: froe-llamacpp --model FILE.gguf [--model-id ID] [--port N] [--ctx N]
 #                      [--background] [--dry-run] [-- EXTRA llama-server ARGS]
@@ -33,7 +35,7 @@ usage() {
 model="${FROE_LLAMACPP_MODEL:-}"
 model_id="${FROE_LLAMACPP_MODEL_ID:-qwen3-coder-30b}"   # froe's registry runtime_id
 port="${FROE_LLAMACPP_PORT:-8080}"                      # llama-server's own default
-ctx=8192
+ctx=32768
 dry=0
 background=0
 extra=()
