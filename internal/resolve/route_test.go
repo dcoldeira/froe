@@ -68,3 +68,16 @@ func TestRoutePreferenceFallsBackToDefault(t *testing.T) {
 		}
 	}
 }
+
+func TestAsksForChange(t *testing.T) {
+	for task, want := range map[string]bool{
+		"lets delete the file via.md":            true,
+		"create a file called via.md":            true,
+		"how many .py files are in src/qrl/lang": false,
+		"where is Route defined":                 false,
+	} {
+		if got := AsksForChange(task); got != want {
+			t.Errorf("AsksForChange(%q) = %v, want %v", task, got, want)
+		}
+	}
+}

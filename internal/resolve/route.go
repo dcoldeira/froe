@@ -51,6 +51,13 @@ func Route(task string, hasSelection bool) (class, why string) {
 	return RouteQuick, "no sign it needs checking"
 }
 
+// AsksForChange reports whether a task asks for files to be changed, the
+// first careful rule. A change is checked by running something after it, not
+// by the look-before-answering reminder a question gets (agent.RequireEvidence).
+func AsksForChange(task string) bool {
+	return carefulRules[0].re.MatchString(strings.ToLower(task))
+}
+
 type routeRule struct {
 	re  *regexp.Regexp
 	why string

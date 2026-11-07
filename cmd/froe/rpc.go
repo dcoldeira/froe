@@ -171,7 +171,7 @@ func (h *rpcHandler) Run(ctx context.Context, p rpc.RunParams, emit func(rpc.Eve
 		MaxToolResultTokens: window / 4,
 		ContextWindow:       window,
 		PrefixReuse:         h.choice.Runtime.PrefixReuse,
-		RequireEvidence:     class == resolve.RouteCareful,
+		RequireEvidence:     class == resolve.RouteCareful && !resolve.AsksForChange(task),
 	}
 
 	var (

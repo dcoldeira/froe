@@ -318,8 +318,12 @@ func answerKey(k key) (perms.Decision, bool) {
 		case 'n', 'N':
 			return perms.Deny, true
 		}
-	case kEnter, kInterrupt:
+	case kInterrupt:
 		return perms.Deny, true
+	case kEnter:
+		// Not an answer. Enter used to mean no, and on 2026-11-07 a user who
+		// pressed it at "allow?" for an rm got "→ no" without meaning it.
+		return perms.Deny, false
 	}
 	return perms.Deny, false
 }

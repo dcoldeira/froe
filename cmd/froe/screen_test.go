@@ -37,7 +37,6 @@ func TestApprovalKeys(t *testing.T) {
 		{kind: kRune, r: 'y'}: perms.Allow,
 		{kind: kRune, r: 'a'}: perms.AlwaysAllow,
 		{kind: kRune, r: 'n'}: perms.Deny,
-		{kind: kEnter}:        perms.Deny,
 		{kind: kInterrupt}:    perms.Deny,
 	} {
 		if d, ok := answerKey(k); !ok || d != want {
@@ -46,5 +45,10 @@ func TestApprovalKeys(t *testing.T) {
 	}
 	if _, ok := answerKey(key{kind: kRune, r: 'x'}); ok {
 		t.Error("an unrelated key answered the question")
+	}
+	// Enter is not an answer: it used to mean no, and a user pressed it at
+	// "allow?" for an rm expecting yes (2026-11-07).
+	if _, ok := answerKey(key{kind: kEnter}); ok {
+		t.Error("Enter answered the question")
 	}
 }

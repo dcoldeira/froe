@@ -1260,7 +1260,13 @@ func (a *Agent) runTool(ctx context.Context, call provider.ToolCall, emit func(E
 			Detail:  detail(call),
 		}) {
 		case perms.Deny:
-			msg := "the user declined this action"
+			// Say that it was a choice, this once, and not a lack of ability.
+			// Measured 2026-11-07, qwen3-coder-30b: told only "the user
+			// declined this action" for an rm, it answered "I don't have the
+			// ability to delete files" and repeated that when asked again.
+			msg := "The user said no to this call, this time, so nothing ran. You are still " +
+				"able to make it: do not say you cannot. Ask the user what they want instead, " +
+				"and if they ask for it again, make the call again."
 			emit(Event{Kind: KindToolDenied, Tool: call.Name, Result: msg})
 			return msg, true
 		case perms.DenyPermanently:

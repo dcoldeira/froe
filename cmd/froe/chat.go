@@ -250,7 +250,7 @@ func chatLoop(ctx context.Context, a *agent.Agent, st *session.Store, sess *sess
 			continue
 		}
 		m.choice = choice
-		a.RequireEvidence = class == resolve.RouteCareful
+		a.RequireEvidence = class == resolve.RouteCareful && !resolve.AsksForChange(line)
 
 		// Build the project context ONCE and reuse it verbatim.
 		//
