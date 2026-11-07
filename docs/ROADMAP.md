@@ -193,7 +193,7 @@ The Makefile defaults `GO` to `~/.local/go/bin/go`. On a machine where Go is
 installed elsewhere, `make` fails with "No such file or directory" until `GO`
 is overridden (`make GO=/usr/bin/go install`). Seen 2026-09-24.
 
-To do: default to `go` on `PATH` and fall back to the local install.
+Fixed 2026-11-07: `GO` defaults to `go` on `PATH`; `make GO=/path/to/go` still overrides it.
 
 ## `froe bench`
 
